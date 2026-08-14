@@ -1,0 +1,86 @@
+{
+  "entities": {
+    "Movie": {
+      "title": "Movie",
+      "description": "A movie entry in The Screening Room dashboard",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Title of the movie"
+        },
+        "year": {
+          "type": "string",
+          "maxLength": 10,
+          "description": "Release year"
+        },
+        "releaseDate": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Full release date string"
+        },
+        "genre": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Movie genres"
+        },
+        "poster": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Poster image URL"
+        },
+        "imdbID": {
+          "type": "string",
+          "maxLength": 30,
+          "description": "IMDb unique identifier"
+        },
+        "imdbRating": {
+          "type": "string",
+          "maxLength": 10,
+          "description": "IMDb rating score"
+        },
+        "director": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Director name(s)"
+        },
+        "plot": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Plot synopsis"
+        },
+        "runtime": {
+          "type": "string",
+          "maxLength": 30,
+          "description": "Runtime string"
+        },
+        "addedBy": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Member who added the movie"
+        },
+        "addedAt": {
+          "type": "number",
+          "description": "Timestamp when added"
+        },
+        "ratings": {
+          "type": "object",
+          "description": "Map of member name to 1-5 star rating"
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Optional notes"
+        }
+      },
+      "required": ["title", "addedAt"]
+    }
+  },
+  "firestore": {
+    "/movies/{movieId}": {
+      "schema": "Movie",
+      "description": "Collection of movies shared in the screening room"
+    }
+  }
+}

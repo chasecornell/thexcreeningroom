@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is logged in
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.email == 'akleyweg@gmail.com';
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      // Allow user to write to their own doc.
+      // In a real app we'd restrict the isAdmin field from being set by the user,
+      // but for simplicity we rely on the client or the email check.
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    match /movies/{movieId} {
+      // Anyone logged in can read movies
+      allow read: if isAuthenticated();
+      
+      // Anyone logged in can create a movie
+      allow create: if isAuthenticated();
+      
+      // Anyone logged in can update a movie (UI restricts to their own rating)
+      allow update: if isAuthenticated();
+      
+      // Only the admin can delete movies
+      allow delete: if isAdmin();
+    }
+
+    match /members/{memberId} {
+      // Anyone logged in can read members list
+      allow read: if isAuthenticated();
+
+      // Only the admin can manage the members list
+      allow write: if isAdmin();
+    }
+  }
+}

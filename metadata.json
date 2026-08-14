@@ -1,0 +1,6 @@
+{
+  "name": "The Screening Room",
+  "description": "Shared movie tracking dashboard with Firestore storage, OMDb verification, and ratings across group members.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
