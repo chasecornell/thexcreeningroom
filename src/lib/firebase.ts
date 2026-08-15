@@ -121,6 +121,7 @@ export function subscribeToMovies(
             addedAt: data.addedAt || Date.now(),
             ratings: data.ratings || {},
             notes: data.notes || '',
+            comments: data.comments || [],
           });
         });
         onUpdate(movies);
