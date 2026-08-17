@@ -15,10 +15,12 @@ import { onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { auth, db } from './lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { AuthScreen } from './components/AuthScreen';
-import { MovieItem, PersonName, MemberProfile } from './types';
+import { MovieItem, PersonName, MemberProfile, ChatMessage } from './types';
 import {
   subscribeToMovies,
   subscribeToMembers,
+  subscribeToGeneralChat,
+  seedInitialGeneralChatIfEmpty,
   setMovieRatingInFirestore,
   deleteMovieFromFirestore,
   deleteAllMoviesFromFirestore,
@@ -32,6 +34,7 @@ import {
   fixMissingPostersOMDB,
 } from './lib/firebase';
 import { StatsBar } from './components/StatsBar';
+import { GeneralChat } from './components/GeneralChat';
 import { MovieSpreadsheet } from './components/MovieSpreadsheet';
 import { AddMovieModal } from './components/AddMovieModal';
 import { MovieDetailModal } from './components/MovieDetailModal';
@@ -45,6 +48,7 @@ export default function App() {
 
   const [movies, setMovies] = useState<MovieItem[]>([]);
   const [members, setMembers] = useState<MemberProfile[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -54,6 +58,7 @@ export default function App() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isManageMembersModalOpen, setIsManageMembersModalOpen] = useState(false);
   const [selectedMovieForDetail, setSelectedMovieForDetail] = useState<MovieItem | null>(null);
+  const [selectedMemberFilter, setSelectedMemberFilter] = useState<PersonName | 'ALL'>('ALL');
 
   // Notification / Toast state
   const [toastMessage, setToastMessage] = useState<{ id: string; text: string; type: 'success' | 'info' } | null>(null);
@@ -111,6 +116,7 @@ export default function App() {
 
     let unsubscribeMovies: () => void = () => {};
     let unsubscribeMembers: () => void = () => {};
+    let unsubscribeChat: () => void = () => {};
 
     const init = async () => {
       try {
@@ -118,15 +124,15 @@ export default function App() {
         await testFirestoreConnection();
         
         await seedDefaultMembersIfEmpty();
-        
-        // Automatically seed Adam's 44 movies if collection is empty (only if admin)
-        if (userProfile?.isAdmin) {
-          await seedStarterMoviesIfEmpty();
-        }
 
         unsubscribeMembers = subscribeToMembers(
           (liveMembers) => setMembers(liveMembers),
           (err) => console.error('Members subscription error:', err)
+        );
+
+        unsubscribeChat = subscribeToGeneralChat(
+          (liveChat) => setChatMessages(liveChat),
+          (err) => console.error('General chat subscription error:', err)
         );
 
         unsubscribeMovies = subscribeToMovies(
@@ -156,6 +162,7 @@ export default function App() {
     return () => {
       unsubscribeMovies();
       unsubscribeMembers();
+      unsubscribeChat();
     };
   }, [user, userProfile?.isAdmin]);
 
@@ -539,13 +546,28 @@ export default function App() {
         )}
 
         {/* Aggregate Stats Dashboard */}
-        <StatsBar movies={movies} members={members} />
+        <StatsBar 
+          movies={movies} 
+          members={members} 
+          selectedMemberFilter={selectedMemberFilter}
+          onSelectMemberFilter={setSelectedMemberFilter}
+          onSelectMovie={(m) => setSelectedMovieForDetail(m)}
+        />
+
+        {/* General Chat / Stream of Nonsense & Banter */}
+        <GeneralChat
+          messages={chatMessages}
+          members={members}
+          currentUserProfile={userProfile}
+        />
 
         {/* Giant Spreadsheet View with full member rating columns */}
         <MovieSpreadsheet
           movies={movies}
           members={members}
           currentUserProfile={userProfile}
+          selectedMemberFilter={selectedMemberFilter}
+          onSelectMemberFilter={setSelectedMemberFilter}
           onOpenAddModal={() => setIsAddModalOpen(true)}
           onOpenImportModal={() => setIsImportModalOpen(true)}
           onLoadAdamSeedMovies={handleLoadAdamSeedMovies}

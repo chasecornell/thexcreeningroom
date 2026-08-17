@@ -10,6 +10,7 @@ import {
   deleteDoc,
   deleteField,
   getDocs,
+  getDoc,
   getDocFromServer,
   writeBatch,
   query,
@@ -19,7 +20,7 @@ import {
   arrayRemove,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { MovieItem, PersonName, MemberProfile, DEFAULT_MEMBER_PROFILES } from '../types';
+import { MovieItem, PersonName, MemberProfile, DEFAULT_MEMBER_PROFILES, ChatMessage, MovieComment } from '../types';
 import { STARTER_MOVIES } from '../data/starterMovies';
 import { searchMoviesOMDB, getMovieDetailsOMDB } from '../services/omdb';
 
@@ -115,7 +116,9 @@ export function subscribeToMovies(
             imdbID: data.imdbID || '',
             imdbRating: data.imdbRating || '',
             director: data.director || '',
+            actors: data.actors || '',
             plot: data.plot || '',
+            rated: data.rated || '',
             runtime: data.runtime || '',
             addedBy: data.addedBy || 'Adam',
             addedAt: data.addedAt || Date.now(),
@@ -446,10 +449,12 @@ export async function seedDefaultMembersIfEmpty(): Promise<boolean> {
 }
 
 
+const GENERAL_CHAT_COLLECTION = 'general_chat';
+
 /**
  * Add a comment to a movie
  */
-export async function addMovieComment(movieId: string, comment: import('../types').MovieComment): Promise<void> {
+export async function addMovieComment(movieId: string, comment: MovieComment): Promise<void> {
   const path = `${MOVIES_COLLECTION}/${movieId}`;
   try {
     const docRef = doc(db, MOVIES_COLLECTION, movieId);
@@ -464,14 +469,305 @@ export async function addMovieComment(movieId: string, comment: import('../types
 /**
  * Remove a comment from a movie
  */
-export async function removeMovieComment(movieId: string, comment: import('../types').MovieComment): Promise<void> {
+export async function removeMovieComment(movieId: string, commentId: string): Promise<void> {
   const path = `${MOVIES_COLLECTION}/${movieId}`;
   try {
     const docRef = doc(db, MOVIES_COLLECTION, movieId);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return;
+    const data = snap.data();
+    const existingComments: MovieComment[] = data.comments || [];
+    const updated = existingComments.filter((c) => c.id !== commentId && c.parentId !== commentId);
+    await updateDoc(docRef, { comments: updated });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+/**
+ * Toggle Like or Dislike on a Movie Comment
+ */
+export async function toggleMovieCommentReaction(
+  movieId: string,
+  commentId: string,
+  person: PersonName,
+  reactionType: 'like' | 'dislike'
+): Promise<void> {
+  const path = `${MOVIES_COLLECTION}/${movieId}`;
+  try {
+    const docRef = doc(db, MOVIES_COLLECTION, movieId);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return;
+    const data = snap.data();
+    const existingComments: MovieComment[] = data.comments || [];
+    
+    const updated = existingComments.map((c) => {
+      if (c.id !== commentId) return c;
+      const currentLikes = Array.isArray(c.likes) ? [...c.likes] : [];
+      const currentDislikes = Array.isArray(c.dislikes) ? [...c.dislikes] : [];
+
+      if (reactionType === 'like') {
+        const hasLiked = currentLikes.includes(person);
+        const newLikes = hasLiked ? currentLikes.filter((p) => p !== person) : [...currentLikes, person];
+        const newDislikes = currentDislikes.filter((p) => p !== person);
+        return { ...c, likes: newLikes, dislikes: newDislikes };
+      } else {
+        const hasDisliked = currentDislikes.includes(person);
+        const newDislikes = hasDisliked ? currentDislikes.filter((p) => p !== person) : [...currentDislikes, person];
+        const newLikes = currentLikes.filter((p) => p !== person);
+        return { ...c, likes: newLikes, dislikes: newDislikes };
+      }
+    });
+
+    await updateDoc(docRef, { comments: updated });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+/**
+ * Subscribe to General Chat stream in real-time
+ */
+export function subscribeToGeneralChat(
+  onUpdate: (messages: ChatMessage[]) => void,
+  onError: (error: Error) => void
+): () => void {
+  try {
+    const chatRef = collection(db, GENERAL_CHAT_COLLECTION);
+    const q = query(chatRef, orderBy('createdAt', 'desc'));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const messages: ChatMessage[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          messages.push({
+            id: docSnap.id,
+            text: data.text || '',
+            author: data.author || 'Anonymous',
+            createdAt: data.createdAt || Date.now(),
+            parentId: data.parentId || null,
+            gifUrl: data.gifUrl || undefined,
+            likes: Array.isArray(data.likes) ? data.likes : [],
+            dislikes: Array.isArray(data.dislikes) ? data.dislikes : [],
+          });
+        });
+        onUpdate(messages);
+      },
+      (error) => {
+        console.error('Firestore general chat subscription error:', error);
+        handleFirestoreError(error, OperationType.LIST, GENERAL_CHAT_COLLECTION);
+      }
+    );
+
+    return unsubscribe;
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err : new Error('Failed to subscribe to general chat');
+    onError(error);
+    return () => {};
+  }
+}
+
+/**
+ * Add a new message to General Chat
+ */
+export async function addGeneralChatMessage(
+  messageData: Omit<ChatMessage, 'id'>
+): Promise<string> {
+  const path = GENERAL_CHAT_COLLECTION;
+  try {
+    const chatRef = collection(db, path);
+    const docRef = doc(chatRef);
+
+    await setDoc(docRef, {
+      ...messageData,
+      createdAt: messageData.createdAt || Date.now(),
+      likes: messageData.likes || [],
+      dislikes: messageData.dislikes || [],
+      parentId: messageData.parentId || null,
+      gifUrl: messageData.gifUrl || null,
+    });
+
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+/**
+ * Toggle reaction (like/dislike) on a General Chat Message
+ */
+export async function toggleGeneralChatReaction(
+  messageId: string,
+  person: PersonName,
+  reactionType: 'like' | 'dislike',
+  currentLikes: PersonName[] = [],
+  currentDislikes: PersonName[] = []
+): Promise<void> {
+  const path = `${GENERAL_CHAT_COLLECTION}/${messageId}`;
+  try {
+    const docRef = doc(db, GENERAL_CHAT_COLLECTION, messageId);
+
+    let newLikes = [...currentLikes];
+    let newDislikes = [...currentDislikes];
+
+    if (reactionType === 'like') {
+      if (newLikes.includes(person)) {
+        newLikes = newLikes.filter((p) => p !== person);
+      } else {
+        newLikes.push(person);
+        newDislikes = newDislikes.filter((p) => p !== person);
+      }
+    } else {
+      if (newDislikes.includes(person)) {
+        newDislikes = newDislikes.filter((p) => p !== person);
+      } else {
+        newDislikes.push(person);
+        newLikes = newLikes.filter((p) => p !== person);
+      }
+    }
+
     await updateDoc(docRef, {
-      comments: arrayRemove(comment)
+      likes: newLikes,
+      dislikes: newDislikes,
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+/**
+ * Delete a message from General Chat (and its replies)
+ */
+export async function deleteGeneralChatMessage(messageId: string): Promise<void> {
+  const path = `${GENERAL_CHAT_COLLECTION}/${messageId}`;
+  try {
+    const docRef = doc(db, GENERAL_CHAT_COLLECTION, messageId);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Delete ALL messages from General Chat (Admin only)
+ */
+export async function deleteAllGeneralChatMessages(): Promise<void> {
+  const path = GENERAL_CHAT_COLLECTION;
+  try {
+    const chatRef = collection(db, path);
+    const snap = await getDocs(chatRef);
+    if (snap.empty) return;
+    const batch = writeBatch(db);
+    snap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Seed starter general chat banter if the chat stream is completely empty
+ */
+export async function seedInitialGeneralChatIfEmpty(): Promise<boolean> {
+  try {
+    const chatRef = collection(db, GENERAL_CHAT_COLLECTION);
+    const existing = await getDocs(chatRef);
+    if (existing.empty) {
+      return await forceSeedGeneralChat();
+    }
+    return false;
+  } catch (err) {
+    console.error('Error seeding starter chat:', err);
+    return false;
+  }
+}
+
+/**
+ * Force seed or reset rich sample general chat banter
+ */
+export async function forceSeedGeneralChat(): Promise<boolean> {
+  try {
+    const chatRef = collection(db, GENERAL_CHAT_COLLECTION);
+    const now = Date.now();
+
+    const batch = writeBatch(db);
+
+    // Message 1: Tristan Brady
+    const doc1 = doc(chatRef);
+    batch.set(doc1, {
+      author: 'Tristan Brady',
+      text: 'Welcome to the Screening Room Lounge! 🎬 Post your unfiltered movie takes, roasted picks, or why someone logged a 1-star masterpiece here.',
+      createdAt: now - 1000 * 60 * 60 * 5,
+      likes: ['Tristan Brady', 'Anthony', 'Adam', 'Matt'],
+      dislikes: [],
+      gifUrl: 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExdW4yNWJhcGlmZW16aDRtZDJpNmE2ZWltcThkbmJkYnQ2eXVreXZtZiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/gl0mkIZOW6Nwc/giphy.gif',
+      parentId: null,
+    });
+
+    // Message 2: Anthony
+    const doc2 = doc(chatRef);
+    batch.set(doc2, {
+      author: 'Anthony',
+      text: 'Whoever gave The Room 5 stars... you are a legend and also completely unhinged 😂🍿',
+      createdAt: now - 1000 * 60 * 60 * 2,
+      likes: ['Anthony', 'Robert', 'Don'],
+      dislikes: ['Adam'],
+      gifUrl: 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExN3J1bmYwOGpsbXB0Y3h5OGZtbG4zbW53dTh2bWp0NW91ZjZodmxvbyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3o72F8t9TDi2xVnxOE/giphy.gif',
+      parentId: null,
+    });
+
+    // Reply to Message 2 from Matt
+    const reply1 = doc(chatRef);
+    batch.set(reply1, {
+      author: 'Matt',
+      text: 'It is a cinematic masterpiece and Tommy Wiseau belongs in the Criterion Collection! 🤌',
+      createdAt: now - 1000 * 60 * 90,
+      likes: ['Matt', 'Tristan Brady'],
+      dislikes: ['Anthony'],
+      parentId: doc2.id,
+    });
+
+    // Reply to Message 2 from Robert
+    const reply2 = doc(chatRef);
+    batch.set(reply2, {
+      author: 'Robert',
+      text: '"I did not hit her, it\'s not true, it\'s bullshit, I did not hit her... oh hi Mark." 😂',
+      createdAt: now - 1000 * 60 * 75,
+      likes: ['Robert', 'Anthony', 'Tristan Brady'],
+      dislikes: [],
+      parentId: doc2.id,
+    });
+
+    // Message 3: Adam
+    const doc3 = doc(chatRef);
+    batch.set(doc3, {
+      author: 'Adam',
+      text: 'Next movie night is strictly 90s psychological thrillers or 80s creature features. No debates! 📼🔥',
+      createdAt: now - 1000 * 60 * 45,
+      likes: ['Adam', 'Matt', 'Don'],
+      dislikes: [],
+      gifUrl: 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExeWZvaG5ndGtkNGZ4eG90N2hkcmkyMHZzNGw5Z2phOHlndDVmYXlkdyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/7rj2ZgBlAqgms/giphy.gif',
+      parentId: null,
+    });
+
+    // Message 4: Don
+    const doc4 = doc(chatRef);
+    batch.set(doc4, {
+      author: 'Don',
+      text: 'If we watch anything over 2 hours and 30 minutes on a Tuesday, I am falling asleep 15 minutes in 😴🍿',
+      createdAt: now - 1000 * 60 * 12,
+      likes: ['Don', 'Robert', 'Anthony'],
+      dislikes: ['Tristan Brady'],
+      gifUrl: 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTVlOW1mNmd1Nm1yNXJ4aWtkNHp3cWtncm5vbjhpa3Z0dnl1anlkbyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/mkhMTALSJYJWg/giphy.gif',
+      parentId: null,
+    });
+
+    await batch.commit();
+    return true;
+  } catch (err) {
+    console.error('Error in forceSeedGeneralChat:', err);
+    return false;
   }
 }

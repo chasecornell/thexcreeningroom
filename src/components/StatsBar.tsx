@@ -7,6 +7,7 @@ interface StatsBarProps {
   members: MemberProfile[];
   selectedMemberFilter?: PersonName | 'ALL';
   onSelectMemberFilter?: (member: PersonName | 'ALL') => void;
+  onSelectMovie?: (movie: MovieItem) => void;
 }
 
 export function StatsBar({
@@ -14,6 +15,7 @@ export function StatsBar({
   members,
   selectedMemberFilter = 'ALL',
   onSelectMemberFilter,
+  onSelectMovie,
 }: StatsBarProps) {
   const stats = useMemo(() => {
     const totalMovies = movies.length;
@@ -127,14 +129,23 @@ export function StatsBar({
           </div>
         </div>
 
-        <div className="bg-[#111114] border border-[#222225] rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
+        <div 
+          onClick={() => {
+            if (stats.highestRatedMovie && onSelectMovie) {
+              onSelectMovie(stats.highestRatedMovie.movie);
+            }
+          }}
+          className={`bg-[#111114] border border-[#222225] rounded-2xl p-4 flex items-center gap-3.5 shadow-sm transition ${
+            stats.highestRatedMovie && onSelectMovie ? 'cursor-pointer hover:border-amber-500/40 hover:bg-[#15151a]' : ''
+          }`}
+        >
           <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
             <Trophy className="w-5 h-5" />
           </div>
           <div className="min-w-0 flex-1">
             {stats.highestRatedMovie ? (
               <>
-                <div className="text-sm font-bold text-white truncate leading-tight">
+                <div className="text-sm font-bold text-white truncate leading-tight group-hover:text-amber-400">
                   {stats.highestRatedMovie.movie.title}
                 </div>
                 <div className="text-xs text-amber-400 font-semibold mt-1">

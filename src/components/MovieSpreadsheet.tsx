@@ -430,12 +430,12 @@ export function MovieSpreadsheet({
             <thead>
               <tr className="border-b border-[#222225] bg-[#151518] text-xs font-bold text-zinc-400 select-none">
                 {/* # Col */}
-                <th className="py-3.5 px-3 w-10 text-center text-zinc-500">#</th>
+                <th className="sticky left-0 z-20 bg-[#151518] py-3.5 px-3 w-10 text-center text-zinc-500">#</th>
 
                 {/* Movie Details Column */}
                 <th
                   onClick={() => handleSortToggle('title')}
-                  className="py-3.5 px-4 min-w-[280px] cursor-pointer hover:text-amber-400 transition"
+                  className="sticky left-[40px] z-20 bg-[#151518] py-3.5 px-4 min-w-[280px] sm:min-w-[320px] cursor-pointer hover:text-amber-400 transition shadow-[1px_0_0_0_#222225]"
                 >
                   <div className="flex items-center gap-1.5">
                     <span>Movie & Details</span>
@@ -560,12 +560,12 @@ export function MovieSpreadsheet({
                       className="hover:bg-[#16161b] transition-colors group/row"
                     >
                       {/* Index # */}
-                      <td className="py-3 px-3 text-center text-xs font-medium text-zinc-500">
+                      <td className="sticky left-0 z-10 bg-[#111114] group-hover/row:bg-[#16161b] transition-colors py-3 px-3 text-center text-xs font-medium text-zinc-500">
                         {index + 1}
                       </td>
 
                       {/* Movie Info & Poster */}
-                      <td className="py-3 px-4">
+                      <td className="sticky left-[40px] z-10 bg-[#111114] group-hover/row:bg-[#16161b] transition-colors py-3 px-4 shadow-[1px_0_0_0_#222225]">
                         <div className="flex items-start gap-3">
                           <img
                             src={

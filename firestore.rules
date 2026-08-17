@@ -41,5 +41,15 @@ service cloud.firestore {
       // Only the admin can manage the members list
       allow write: if isAdmin();
     }
+
+    match /general_chat/{messageId} {
+      // Anyone logged in can read general chat messages
+      allow read: if isAuthenticated();
+
+      // Anyone logged in can create, update (like/dislike/edit), and delete chat messages
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated();
+    }
   }
 }

@@ -18,8 +18,28 @@ export const STARTER_MOVIES: Omit<MovieItem, 'id'>[] = [
     runtime: '108 min',
     addedBy: 'Adam',
     addedAt: 1718000000000 + 44 * 10000,
-    ratings: {},
+    ratings: { 'Tristan Brady': 4, 'Adam': 5, 'Anthony': 4 },
     notes: 'Entered by Adam Kleyweg',
+    comments: [
+      {
+        id: 'boondock-comment-1',
+        author: 'Adam',
+        text: 'Willem Dafoe in the crime scene shootout investigation is peak acting cinema! 🎬🔫',
+        createdAt: 1718000000000 + 44 * 10000 + 1000 * 60 * 30,
+        likes: ['Adam', 'Tristan Brady', 'Anthony'],
+        dislikes: [],
+        gifUrl: 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExdnAzaG9jNm5xZWhlaHlycWdxb3pkaWR2M2h4c3A1dDRhbnA5czV3YSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/TFIoWBxZwg2ZWn7Q5s/giphy.gif',
+      },
+      {
+        id: 'boondock-comment-2',
+        author: 'Tristan Brady',
+        text: '"THERE WAS A FIREFIGHT!" 🔥 Classic 90s cult movie.',
+        createdAt: 1718000000000 + 44 * 10000 + 1000 * 60 * 60,
+        likes: ['Tristan Brady', 'Anthony', 'Robert'],
+        dislikes: [],
+        parentId: 'boondock-comment-1',
+      }
+    ],
   },
   {
     title: 'Unbreakable',
@@ -34,8 +54,18 @@ export const STARTER_MOVIES: Omit<MovieItem, 'id'>[] = [
     runtime: '106 min',
     addedBy: 'Adam',
     addedAt: 1718000000000 + 43 * 10000,
-    ratings: {},
+    ratings: { 'Adam': 5, 'Matt': 4 },
     notes: 'Entered by Adam Kleyweg',
+    comments: [
+      {
+        id: 'unbreakable-comment-1',
+        author: 'Matt',
+        text: 'The best superhero origin story ever made before the MCU took over everything. 💥',
+        createdAt: 1718000000000 + 43 * 10000 + 1000 * 60 * 45,
+        likes: ['Matt', 'Adam'],
+        dislikes: [],
+      }
+    ],
   },
   {
     title: 'Unbroken',

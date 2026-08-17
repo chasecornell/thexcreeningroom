@@ -75,6 +75,20 @@ export interface MovieComment {
   author: PersonName;
   createdAt: number;
   parentId?: string | null;
+  gifUrl?: string;
+  likes?: PersonName[];
+  dislikes?: PersonName[];
+}
+
+export interface ChatMessage {
+  id: string;
+  text: string;
+  author: PersonName;
+  createdAt: number;
+  parentId?: string | null;
+  gifUrl?: string;
+  likes?: PersonName[];
+  dislikes?: PersonName[];
 }
 
 export interface MovieItem {
@@ -87,7 +101,9 @@ export interface MovieItem {
   imdbID: string;
   imdbRating?: string;
   director?: string;
+  actors?: string;
   plot?: string;
+  rated?: string;
   runtime?: string;
   addedBy: PersonName;
   addedAt: number;

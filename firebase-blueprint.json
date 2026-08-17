@@ -75,12 +75,56 @@
         }
       },
       "required": ["title", "addedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "A general chat message or discussion in The Screening Room lounge",
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Message content"
+        },
+        "author": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Author of the message"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp when message was created"
+        },
+        "parentId": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Optional parent message ID for threaded reply"
+        },
+        "gifUrl": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Optional attached GIF image URL"
+        },
+        "likes": {
+          "type": "array",
+          "description": "List of member names who liked this message"
+        },
+        "dislikes": {
+          "type": "array",
+          "description": "List of member names who disliked this message"
+        }
+      },
+      "required": ["text", "author", "createdAt"]
     }
   },
   "firestore": {
     "/movies/{movieId}": {
       "schema": "Movie",
       "description": "Collection of movies shared in the screening room"
+    },
+    "/general_chat/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "General banter and discussion stream"
     }
   }
 }
