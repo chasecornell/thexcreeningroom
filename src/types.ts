@@ -6,10 +6,14 @@ export interface MemberProfile {
   shortName: string;
   initials: string;
   avatarColor: string;
+  avatarUrl?: string;
   badgeBg: string;
   badgeText: string;
   borderAccent: string;
   addedAt: number;
+  email?: string;
+  optOutDailyDigest?: boolean;
+  optOutWeeklyRoast?: boolean;
 }
 
 export const DEFAULT_MEMBER_PROFILES: Omit<MemberProfile, 'id' | 'addedAt'>[] = [
@@ -41,13 +45,22 @@ export const DEFAULT_MEMBER_PROFILES: Omit<MemberProfile, 'id' | 'addedAt'>[] = 
     borderAccent: 'border-violet-500/80',
   },
   {
-    name: 'Matt',
+    name: 'Matt Tighe',
     shortName: 'Matt',
-    initials: 'M',
+    initials: 'MT',
     avatarColor: 'bg-amber-600 text-amber-50',
     badgeBg: 'bg-amber-950/60 text-amber-300 border-amber-800/80',
     badgeText: 'text-amber-400',
     borderAccent: 'border-amber-500/80',
+  },
+  {
+    name: 'Senior Iglesia',
+    shortName: 'Senior Iglesia',
+    initials: 'SI',
+    avatarColor: 'bg-orange-600 text-orange-50',
+    badgeBg: 'bg-orange-950/60 text-orange-300 border-orange-800/80',
+    badgeText: 'text-orange-400',
+    borderAccent: 'border-orange-500/80',
   },
   {
     name: 'Robert',
@@ -80,6 +93,24 @@ export interface MovieComment {
   dislikes?: PersonName[];
 }
 
+export type HotTakeReactionType = '🔥' | '🧊' | '🍿' | '💀';
+
+export interface HotTake {
+  id: string;
+  movieId: string;
+  movieTitle: string;
+  movieYear?: string;
+  moviePoster?: string;
+  author: PersonName;
+  authorShortName?: string;
+  authorAvatarUrl?: string;
+  hotTakeText: string;
+  createdAt: number;
+  reactions?: Record<string, PersonName[]>; // Map of emoji (e.g. '🔥') to array of PersonName
+  imdbID?: string;
+  initialRating?: number;
+}
+
 export interface ChatMessage {
   id: string;
   text: string;
@@ -110,6 +141,9 @@ export interface MovieItem {
   ratings: Partial<Record<PersonName, number>>; // rating 1 to 5
   notes?: string;
   comments?: MovieComment[];
+  isHotTake?: boolean;
+  hotTakeText?: string;
+  hotTakeCreatedAt?: number;
 }
 
 export interface OMDBMovieSearchResult {
@@ -143,4 +177,34 @@ export interface OMDBMovieDetail {
   Type?: string;
   Response?: string;
   Error?: string;
+}
+
+export interface UserEmailPreferences {
+  email: string;
+  optOutDailyDigest: boolean;
+  optOutWeeklyRoast: boolean;
+  lastDailySentAt?: number;
+  lastWeeklySentAt?: number;
+}
+
+export interface WeeklyRoastData {
+  headline: string;
+  tasteShame: string;
+  slackerRoast: string;
+  spicyQuoteRoast?: string;
+  closingZing: string;
+  topCurator: string;
+  topCuratorScore: number | null;
+  bottomCurator: string;
+  bottomCuratorScore: number | null;
+  unratedMovies: MovieItem[];
+  recentHotTake?: HotTake;
+  topChatQuote?: { author: string; text: string };
+  newFeatures: string[];
+}
+
+export interface DailyDigestData {
+  dateString: string;
+  moviesAdded: MovieItem[];
+  curatorsActive: string[];
 }

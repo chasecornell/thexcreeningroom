@@ -49,12 +49,18 @@ export function CommentsModal({
 
     setIsSubmitting(true);
     try {
+      const parentId = replyTo ? (replyTo.parentId || replyTo.id) : null;
+      let textToPost = newComment.trim();
+      if (replyTo && replyTo.parentId && !textToPost.startsWith(`@${replyTo.author}`)) {
+        textToPost = `@${replyTo.author} ${textToPost}`;
+      }
+
       const comment: MovieComment = {
         id: uuidv4(),
-        text: newComment.trim(),
+        text: textToPost,
         author: currentUserProfile.personName,
         createdAt: Date.now(),
-        parentId: replyTo?.id || null,
+        parentId,
         gifUrl: attachedGif || undefined,
         likes: [],
         dislikes: [],
@@ -169,6 +175,7 @@ export function CommentsModal({
                           isReply
                           members={members}
                           currentUserProfile={currentUserProfile}
+                          onReply={() => setReplyTo(reply)}
                           onToggleReaction={(type) => handleToggleReaction(reply.id, type)}
                           onDelete={() => handleDeleteComment(reply.id)}
                         />
@@ -332,11 +339,19 @@ function CommentBubble({
       <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-2">
           {authorProfile && (
-            <span
-              className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold ${authorProfile.avatarColor}`}
-            >
-              {authorProfile.initials}
-            </span>
+            authorProfile.avatarUrl ? (
+              <img
+                src={authorProfile.avatarUrl}
+                alt={authorProfile.name}
+                className="w-5 h-5 rounded-full object-cover shrink-0"
+              />
+            ) : (
+              <span
+                className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold ${authorProfile.avatarColor} shrink-0`}
+              >
+                {authorProfile.initials}
+              </span>
+            )
           )}
           <span className="font-bold text-zinc-100 text-xs">{comment.author}</span>
         </div>

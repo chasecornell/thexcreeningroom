@@ -13,10 +13,13 @@ import {
   Upload,
   Database,
   MessageSquare,
+  Trophy,
+  Flame,
 } from 'lucide-react';
 import { MovieItem, MemberProfile, PersonName } from '../types';
 import { StarRating } from './StarRating';
 import { CommentsModal } from './CommentsModal';
+import { calculateCuratorStats } from '../lib/curatorStats';
 
 interface MovieSpreadsheetProps {
   movies: MovieItem[];
@@ -31,6 +34,7 @@ interface MovieSpreadsheetProps {
   onLoadAdamSeedMovies?: () => void;
   selectedMemberFilter?: PersonName | 'ALL';
   onSelectMemberFilter?: (member: PersonName | 'ALL') => void;
+  onOpenLeaderboard?: () => void;
 }
 
 type SortField = 'addedAt' | 'title' | 'year' | 'avgRating' | 'watchedCount';
@@ -49,6 +53,7 @@ export function MovieSpreadsheet({
   onLoadAdamSeedMovies,
   selectedMemberFilter = 'ALL',
   onSelectMemberFilter,
+  onOpenLeaderboard,
 }: MovieSpreadsheetProps) {
   const searchFilterId = useId();
   const genreFilterId = useId();
@@ -63,6 +68,25 @@ export function MovieSpreadsheet({
   const [sortField, setSortField] = useState<SortField>('addedAt');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [selectedCommentMovie, setSelectedCommentMovie] = useState<MovieItem | null>(null);
+
+  // Order members so that the signed-in user is ALWAYS first in the rating columns
+  const orderedMembers = useMemo(() => {
+    if (!currentUserProfile?.personName) return members;
+    const currentName = currentUserProfile.personName;
+    const userMember = members.find(
+      (m) =>
+        m.name === currentName ||
+        ((currentName === 'Matt' || currentName === 'Matt Tighe') && (m.name === 'Matt' || m.name === 'Matt Tighe'))
+    );
+    if (!userMember) return members;
+    const others = members.filter((m) => m.id !== userMember.id);
+    return [userMember, ...others];
+  }, [members, currentUserProfile?.personName]);
+
+  // Compute Curator / Taste ratings for all members
+  const curatorStats = useMemo(() => {
+    return calculateCuratorStats(movies, members).statsMap;
+  }, [movies, members]);
 
   // Extract unique genres for filter dropdown
   const allGenres = useMemo(() => {
@@ -103,32 +127,51 @@ export function MovieSpreadsheet({
 
         // Added by filter
         if (selectedAdder !== 'ALL') {
-          if (movie.addedBy !== selectedAdder) {
+          const matchesAdder = movie.addedBy === selectedAdder ||
+            ((selectedAdder === 'Matt' || selectedAdder === 'Matt Tighe') && (movie.addedBy === 'Matt' || movie.addedBy === 'Matt Tighe'));
+          if (!matchesAdder) {
             return false;
           }
         }
 
         // Member stat bar filter
         if (selectedMemberFilter !== 'ALL') {
-          const rating = movie.ratings?.[selectedMemberFilter];
+          const rating = movie.ratings?.[selectedMemberFilter] ??
+            ((selectedMemberFilter === 'Matt' || selectedMemberFilter === 'Matt Tighe') ? (movie.ratings?.['Matt'] ?? movie.ratings?.['Matt Tighe']) : undefined);
           if (!rating || rating === 0) {
             return false;
           }
         }
 
         // Watch status filter
-        if (watchStatusFilter === 'FULLY_WATCHED') {
-          const count = members.filter((p) => (movie.ratings?.[p.name] ?? 0) > 0).length;
+        if (watchStatusFilter === 'HOT_TAKES_ONLY') {
+          if (!movie.isHotTake) return false;
+        } else if (watchStatusFilter === 'FULLY_WATCHED') {
+          const count = members.filter((p) => {
+            const r = movie.ratings?.[p.name] ??
+              ((p.name === 'Matt Tighe' || p.shortName === 'Matt') ? movie.ratings?.['Matt'] : undefined) ??
+              ((p.name === 'Matt') ? movie.ratings?.['Matt Tighe'] : undefined) ?? 0;
+            return r > 0;
+          }).length;
           if (count !== members.length) return false;
         } else if (watchStatusFilter === 'UNWATCHED_BY_ALL') {
-          const count = members.filter((p) => (movie.ratings?.[p.name] ?? 0) > 0).length;
+          const count = members.filter((p) => {
+            const r = movie.ratings?.[p.name] ??
+              ((p.name === 'Matt Tighe' || p.shortName === 'Matt') ? movie.ratings?.['Matt'] : undefined) ??
+              ((p.name === 'Matt') ? movie.ratings?.['Matt Tighe'] : undefined) ?? 0;
+            return r > 0;
+          }).length;
           if (count > 0) return false;
         } else if (watchStatusFilter.startsWith('WATCHED_BY_')) {
           const person = watchStatusFilter.replace('WATCHED_BY_', '') as PersonName;
-          if (!(movie.ratings?.[person] && movie.ratings[person] > 0)) return false;
+          const r = movie.ratings?.[person] ??
+            ((person === 'Matt' || person === 'Matt Tighe') ? (movie.ratings?.['Matt'] ?? movie.ratings?.['Matt Tighe']) : undefined);
+          if (!(r && r > 0)) return false;
         } else if (watchStatusFilter.startsWith('UNWATCHED_BY_')) {
           const person = watchStatusFilter.replace('UNWATCHED_BY_', '') as PersonName;
-          if (movie.ratings?.[person] && movie.ratings[person] > 0) return false;
+          const r = movie.ratings?.[person] ??
+            ((person === 'Matt' || person === 'Matt Tighe') ? (movie.ratings?.['Matt'] ?? movie.ratings?.['Matt Tighe']) : undefined);
+          if (r && r > 0) return false;
         }
 
         return true;
@@ -145,13 +188,22 @@ export function MovieSpreadsheet({
           comp = (a.addedAt || 0) - (b.addedAt || 0);
         } else if (sortField === 'avgRating') {
           const getAvg = (m: MovieItem) => {
-            const ratings = members.map((p) => m.ratings?.[p.name] || 0).filter((r) => r > 0);
+            const ratings = members.map((p) => {
+              return m.ratings?.[p.name] ?? 
+                ((p.name === 'Matt Tighe' || p.shortName === 'Matt') ? m.ratings?.['Matt'] : undefined) ??
+                ((p.name === 'Matt') ? m.ratings?.['Matt Tighe'] : undefined) ?? 0;
+            }).filter((r) => r > 0);
             return ratings.length > 0 ? ratings.reduce((acc, v) => acc + v, 0) / ratings.length : 0;
           };
           comp = getAvg(a) - getAvg(b);
         } else if (sortField === 'watchedCount') {
           const getCount = (m: MovieItem) =>
-            members.filter((p) => (m.ratings?.[p.name] ?? 0) > 0).length;
+            members.filter((p) => {
+              const r = m.ratings?.[p.name] ?? 
+                ((p.name === 'Matt Tighe' || p.shortName === 'Matt') ? m.ratings?.['Matt'] : undefined) ??
+                ((p.name === 'Matt') ? m.ratings?.['Matt Tighe'] : undefined) ?? 0;
+              return r > 0;
+            }).length;
           comp = getCount(a) - getCount(b);
         }
 
@@ -282,11 +334,14 @@ export function MovieSpreadsheet({
               className="px-2.5 py-1.5 rounded-lg border border-[#26262a] bg-[#161619] font-medium text-zinc-200 focus:ring-1 focus:ring-amber-500 focus:outline-none cursor-pointer"
             >
               <option value="ALL">All Adders</option>
-              {members.map((member) => (
-                <option key={member.id} value={member.name}>
-                  Added by {member.name}
-                </option>
-              ))}
+              {members.map((member) => {
+                const c = curatorStats[member.name];
+                return (
+                  <option key={member.id} value={member.name}>
+                    Added by {member.name} {c && c.curatorRating !== null ? `(★ ${c.curatorRatingFormatted})` : ''}
+                  </option>
+                );
+              })}
             </select>
           </div>
 
@@ -302,18 +357,19 @@ export function MovieSpreadsheet({
               className="px-2.5 py-1.5 rounded-lg border border-[#26262a] bg-[#161619] font-medium text-zinc-200 focus:ring-1 focus:ring-amber-500 focus:outline-none cursor-pointer"
             >
               <option value="ALL">All Watch Statuses</option>
+              <option value="HOT_TAKES_ONLY">🔥 Hot Takes Only</option>
               <option value="FULLY_WATCHED">Watched by All Members</option>
               <option value="UNWATCHED_BY_ALL">Unwatched by Anyone</option>
               <optgroup label="Watched by Person">
-                {members.map((p) => (
-                  <option key={`watched-${p.name}`} value={`WATCHED_BY_${p.name}`}>
+                {members.map((p, i) => (
+                  <option key={`watched-${p.id || p.name}-${i}`} value={`WATCHED_BY_${p.name}`}>
                     Watched by {p.name}
                   </option>
                 ))}
               </optgroup>
               <optgroup label="Unwatched by Person">
-                {members.map((p) => (
-                  <option key={`unwatched-${p.name}`} value={`UNWATCHED_BY_${p.name}`}>
+                {members.map((p, i) => (
+                  <option key={`unwatched-${p.id || p.name}-${i}`} value={`UNWATCHED_BY_${p.name}`}>
                     Unwatched by {p.name}
                   </option>
                 ))}
@@ -424,72 +480,120 @@ export function MovieSpreadsheet({
         id="movies-spreadsheet-table-wrapper"
         className="bg-[#111114] border border-[#222225] rounded-2xl shadow-md overflow-hidden"
       >
+        {/* Mobile Swipe / Tap Hint */}
+        <div className="sm:hidden px-3 py-1.5 bg-[#141417] border-b border-[#222225] flex items-center justify-between text-[11px] text-zinc-400">
+          <span className="flex items-center gap-1 text-zinc-300">
+            <Film className="w-3 h-3 text-amber-400" />
+            <span>Tap poster for info</span>
+          </span>
+          <span className="text-amber-400 font-medium flex items-center gap-1">
+            <span>{currentUserProfile?.personName ? `Your rating is next column (${currentUserProfile.personName})` : 'Scroll for ratings'}</span>
+            <span>→</span>
+          </span>
+        </div>
+
         <div className="overflow-x-auto min-h-[300px]">
-          <table className="w-full text-left border-collapse min-w-[1100px]">
+          <table className="w-full text-left border-collapse min-w-[780px] sm:min-w-[1100px]">
             {/* Table Header with Fixed Columns */}
             <thead>
               <tr className="border-b border-[#222225] bg-[#151518] text-xs font-bold text-zinc-400 select-none">
                 {/* # Col */}
-                <th className="sticky left-0 z-20 bg-[#151518] py-3.5 px-3 w-10 text-center text-zinc-500">#</th>
+                <th className="sticky left-0 z-20 bg-[#151518] py-2 sm:py-3.5 px-1 sm:px-3 w-8 sm:w-10 text-center text-zinc-500 text-[11px] sm:text-xs">#</th>
 
-                {/* Movie Details Column */}
+                {/* Movie Details Column - Compact Poster on Mobile, Full on Desktop */}
                 <th
                   onClick={() => handleSortToggle('title')}
-                  className="sticky left-[40px] z-20 bg-[#151518] py-3.5 px-4 min-w-[280px] sm:min-w-[320px] cursor-pointer hover:text-amber-400 transition shadow-[1px_0_0_0_#222225]"
+                  className="sticky left-[32px] sm:left-[40px] z-20 bg-[#151518] py-2 sm:py-3.5 px-1.5 sm:px-4 w-[54px] sm:w-auto sm:min-w-[320px] cursor-pointer hover:text-amber-400 transition shadow-[1px_0_0_0_#222225]"
                 >
-                  <div className="flex items-center gap-1.5">
+                  {/* Mobile Header Label */}
+                  <div className="sm:hidden flex items-center justify-center" title="Sort by title (Tap to toggle)">
+                    <Film className="w-3.5 h-3.5 text-zinc-400" />
+                  </div>
+
+                  {/* Desktop Header Label */}
+                  <div className="hidden sm:flex items-center gap-1.5">
                     <span>Movie & Details</span>
                     <ArrowUpDown className="w-3 h-3 opacity-60" />
                   </div>
                 </th>
 
-                {/* Added By Column */}
-                <th className="py-3.5 px-3 min-w-[110px] text-center">Added By</th>
-
-                {/* 6 Person Columns side by side */}
-                {members.map((member) => {
-                  const profile = member;
+                {/* Member Rating Columns (Signed-in User's column is defaulted first right next to Movie on mobile & desktop) */}
+                {orderedMembers.map((member) => {
+                  const isCurrentUser =
+                    currentUserProfile?.personName === member.name ||
+                    ((currentUserProfile?.personName === 'Matt' || currentUserProfile?.personName === 'Matt Tighe') &&
+                      (member.name === 'Matt' || member.name === 'Matt Tighe'));
                   return (
                     <th
                       key={member.id}
-                      id={`col-header-${profile.shortName.toLowerCase()}`}
-                      className="py-3.5 px-2 min-w-[115px] text-center border-l border-[#1e1e23]"
+                      id={`col-header-${member.shortName.toLowerCase()}`}
+                      className={`py-2 sm:py-3.5 px-1.5 sm:px-2 min-w-[105px] sm:min-w-[120px] text-center border-l border-[#1e1e23] ${
+                        isCurrentUser ? 'bg-amber-500/10 border-b-2 border-b-amber-400' : ''
+                      }`}
                     >
-                      <div className="flex flex-col items-center justify-center gap-1">
-                        <div className="flex items-center gap-1.5">
-                          <span
-                            className={`w-4 h-4 rounded-md flex items-center justify-center text-[9px] font-bold ${profile.avatarColor}`}
-                          >
-                            {profile.initials}
-                          </span>
-                          <span className="font-semibold text-zinc-200 truncate max-w-[90px]">
-                            {profile.shortName}
+                      <div className="flex flex-col items-center justify-center gap-0.5 sm:gap-1">
+                        <div className="flex items-center gap-1 sm:gap-1.5">
+                          {member.avatarUrl ? (
+                            <img
+                              src={member.avatarUrl}
+                              alt={member.name}
+                              className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-md object-cover shrink-0 ${
+                                isCurrentUser ? 'ring-1 ring-amber-400' : ''
+                              }`}
+                            />
+                          ) : (
+                            <span
+                              className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-md flex items-center justify-center text-[8px] sm:text-[9px] font-bold ${member.avatarColor} shrink-0 ${
+                                isCurrentUser ? 'ring-1 ring-amber-400' : ''
+                              }`}
+                            >
+                              {member.initials}
+                            </span>
+                          )}
+                          <span className="font-semibold text-zinc-200 truncate max-w-[75px] sm:max-w-[90px] text-[11px] sm:text-xs flex items-center gap-1">
+                            <span>{member.shortName}</span>
+                            {isCurrentUser && (
+                              <span className="text-[9px] font-bold text-amber-950 bg-amber-400 px-1 py-0.2 rounded shadow-xs">
+                                You
+                              </span>
+                            )}
                           </span>
                         </div>
-                        <span className="text-[10px] font-normal text-zinc-500">
-                          {profile.name === 'Tristan Brady' ? 'Tristan B.' : profile.name}
+                        <span
+                          className={`text-[9px] sm:text-[10px] truncate max-w-[80px] ${
+                            isCurrentUser ? 'font-bold text-amber-300' : 'font-normal text-zinc-500'
+                          }`}
+                        >
+                          {isCurrentUser
+                            ? 'Your Rating'
+                            : member.name === 'Tristan Brady'
+                            ? 'Tristan B.'
+                            : member.name}
                         </span>
                       </div>
                     </th>
                   );
                 })}
 
+                {/* Added By Column */}
+                <th className="py-2 sm:py-3.5 px-2 sm:px-3 min-w-[90px] sm:min-w-[110px] text-center border-l border-[#1e1e23]">Added By</th>
+
                 {/* Group Stats Column */}
                 <th
                   onClick={() => handleSortToggle('avgRating')}
-                  className="py-3.5 px-3 min-w-[120px] text-center border-l border-[#1e1e23] cursor-pointer hover:text-amber-400 transition"
+                  className="py-2 sm:py-3.5 px-2 sm:px-3 min-w-[100px] sm:min-w-[120px] text-center border-l border-[#1e1e23] cursor-pointer hover:text-amber-400 transition"
                 >
                   <div className="flex flex-col items-center justify-center gap-0.5">
                     <div className="flex items-center gap-1">
                       <span>Group Avg</span>
                       <ArrowUpDown className="w-3 h-3 opacity-60" />
                     </div>
-                    <span className="text-[10px] font-normal text-zinc-500">Watched count</span>
+                    <span className="text-[9px] sm:text-[10px] font-normal text-zinc-500">Watched count</span>
                   </div>
                 </th>
 
                 {/* Actions Column */}
-                <th className="py-3.5 px-3 min-w-[90px] text-center">Actions</th>
+                <th className="py-2 sm:py-3.5 px-2 sm:px-3 min-w-[80px] sm:min-w-[90px] text-center">Actions</th>
               </tr>
             </thead>
 
@@ -539,12 +643,22 @@ export function MovieSpreadsheet({
                 </tr>
               ) : (
                 filteredMovies.map((movie, index) => {
-                  const adderProfile = movie.addedBy ? members.find((m) => m.name === movie.addedBy) : null;
+                  const adderProfile = movie.addedBy ? members.find((m) => m.name === movie.addedBy || (movie.addedBy === 'Matt' && (m.name === 'Matt Tighe' || m.shortName === 'Matt'))) : null;
 
                   // Group stats for this movie
-                  const ratedMembers = members.filter((p) => (movie.ratings?.[p.name] ?? 0) > 0);
+                  const ratedMembers = members.filter((p) => {
+                    const r = movie.ratings?.[p.name] ?? 
+                      ((p.name === 'Matt Tighe' || p.shortName === 'Matt') ? movie.ratings?.['Matt'] : undefined) ??
+                      ((p.name === 'Matt') ? movie.ratings?.['Matt Tighe'] : undefined) ?? 0;
+                    return r > 0;
+                  });
                   const sumRatings = ratedMembers.reduce(
-                    (acc, p) => acc + (movie.ratings[p.name] || 0),
+                    (acc, p) => {
+                      const r = movie.ratings?.[p.name] ?? 
+                        ((p.name === 'Matt Tighe' || p.shortName === 'Matt') ? movie.ratings?.['Matt'] : undefined) ??
+                        ((p.name === 'Matt') ? movie.ratings?.['Matt Tighe'] : undefined) ?? 0;
+                      return acc + r;
+                    },
                     0
                   );
                   const groupAvg =
@@ -560,13 +674,39 @@ export function MovieSpreadsheet({
                       className="hover:bg-[#16161b] transition-colors group/row"
                     >
                       {/* Index # */}
-                      <td className="sticky left-0 z-10 bg-[#111114] group-hover/row:bg-[#16161b] transition-colors py-3 px-3 text-center text-xs font-medium text-zinc-500">
+                      <td className="sticky left-0 z-10 bg-[#111114] group-hover/row:bg-[#16161b] transition-colors py-2 sm:py-3 px-1 sm:px-3 text-center text-[11px] sm:text-xs font-medium text-zinc-500 w-8 sm:w-10">
                         {index + 1}
                       </td>
 
-                      {/* Movie Info & Poster */}
-                      <td className="sticky left-[40px] z-10 bg-[#111114] group-hover/row:bg-[#16161b] transition-colors py-3 px-4 shadow-[1px_0_0_0_#222225]">
-                        <div className="flex items-start gap-3">
+                      {/* Movie Column: Poster Only on Mobile, Full Info on Desktop */}
+                      <td className="sticky left-[32px] sm:left-[40px] z-10 bg-[#111114] group-hover/row:bg-[#16161b] transition-colors py-2 sm:py-3 px-1 sm:px-4 shadow-[1px_0_0_0_#222225] w-[54px] sm:w-auto">
+                        {/* Mobile View: Poster Thumbnail Button (Tap to expand movie popout) */}
+                        <div className="sm:hidden flex items-center justify-center">
+                          <button
+                            type="button"
+                            onClick={() => onSelectMovieDetail(movie)}
+                            className="relative group/poster rounded-lg overflow-hidden shadow-sm border border-[#26262a] active:scale-95 transition-transform focus:outline-none focus:ring-1 focus:ring-amber-500 shrink-0 cursor-pointer"
+                            title={`Tap for details: ${movie.title} (${movie.year || ''})`}
+                            aria-label={`View details for ${movie.title}`}
+                          >
+                            <img
+                              src={
+                                movie.poster && movie.poster !== 'N/A'
+                                  ? movie.poster
+                                  : 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=100&auto=format&fit=crop&q=80'
+                              }
+                              alt={movie.title}
+                              className="w-10 h-14 object-cover bg-[#1a1a1f] block"
+                              referrerPolicy="no-referrer"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/poster:opacity-100 flex items-center justify-center transition-opacity">
+                              <Info className="w-3.5 h-3.5 text-white drop-shadow" />
+                            </div>
+                          </button>
+                        </div>
+
+                        {/* Desktop View: Poster + Title + Year + Genres + IMDb + Runtime */}
+                        <div className="hidden sm:flex items-start gap-3">
                           <img
                             src={
                               movie.poster && movie.poster !== 'N/A'
@@ -580,7 +720,7 @@ export function MovieSpreadsheet({
                           />
 
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <button
                                 type="button"
                                 onClick={() => onSelectMovieDetail(movie)}
@@ -591,6 +731,16 @@ export function MovieSpreadsheet({
                               {movie.year && (
                                 <span className="text-xs text-zinc-400 font-medium">
                                   ({movie.year})
+                                </span>
+                              )}
+                              {movie.isHotTake && (
+                                <span
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gradient-to-r from-orange-500/20 to-red-500/20 text-orange-400 border border-orange-500/40 text-[10px] font-bold shadow-xs cursor-pointer hover:border-orange-400 transition"
+                                  title={`🔥 Curator Hot Take: "${movie.hotTakeText || ''}"`}
+                                  onClick={() => onSelectMovieDetail(movie)}
+                                >
+                                  <Flame className="w-3 h-3 fill-orange-500 text-orange-400 animate-pulse" />
+                                  <span>Hot Take</span>
                                 </span>
                               )}
                             </div>
@@ -641,39 +791,87 @@ export function MovieSpreadsheet({
                         </div>
                       </td>
 
-                      {/* Added By Badge */}
-                      <td className="py-3 px-3 text-center align-middle">
-                        {adderProfile ? (
-                          <span
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${adderProfile.badgeBg}`}
-                            title={`Added by ${movie.addedBy}`}
-                          >
-                            <span
-                              className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-bold ${adderProfile.avatarColor}`}
-                            >
-                              {adderProfile.initials}
-                            </span>
-                            <span>{adderProfile.shortName}</span>
-                          </span>
-                        ) : (
-                          <span className="text-xs text-zinc-600">—</span>
-                        )}
-                      </td>
-
-                      {/* Member Star Rating Columns */}
-                      {members.map((member) => {
-                        const currentRating = movie.ratings?.[member.name] || 0;
-                        const isAllowedToRate = currentUserProfile?.personName === member.name;
+                      {/* Member Star Rating Columns (Signed-in User is first!) */}
+                      {orderedMembers.map((member) => {
+                        const currentRating =
+                          movie.ratings?.[member.name] ??
+                          ((member.name === 'Matt Tighe' || member.shortName === 'Matt')
+                            ? movie.ratings?.['Matt']
+                            : undefined) ??
+                          (member.name === 'Matt' ? movie.ratings?.['Matt Tighe'] : undefined) ??
+                          0;
+                        const isAllowedToRate =
+                          currentUserProfile?.personName === member.name ||
+                          ((currentUserProfile?.personName === 'Matt' ||
+                            currentUserProfile?.personName === 'Matt Tighe') &&
+                            (member.name === 'Matt' || member.name === 'Matt Tighe'));
                         return (
                           <td
                             key={member.id}
-                            className="py-2 px-1 text-center align-middle border-l border-[#1e1e23]"
+                            className={`py-2 px-1 text-center align-middle border-l border-[#1e1e23] ${
+                              isAllowedToRate ? 'bg-amber-500/5' : ''
+                            }`}
                           >
-                            <StarRating person={member.name} rating={currentRating} disabled={!isAllowedToRate} onChange={(newRating) => onUpdateRating(movie.id, member.name, newRating)}
+                            <StarRating
+                              person={member.name}
+                              rating={currentRating}
+                              disabled={!isAllowedToRate}
+                              onChange={(newRating) => onUpdateRating(movie.id, member.name, newRating)}
                             />
                           </td>
                         );
                       })}
+
+                      {/* Added By Badge */}
+                      <td className="py-3 px-3 text-center align-middle border-l border-[#1e1e23]">
+                        {adderProfile ? (
+                          <div className="inline-flex flex-col items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onOpenLeaderboard) {
+                                  onOpenLeaderboard();
+                                } else {
+                                  setSelectedAdder(movie.addedBy);
+                                }
+                              }}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border transition cursor-pointer hover:brightness-125 ${adderProfile.badgeBg}`}
+                              title={`Added by ${movie.addedBy}. Click to view Curator Leaderboard`}
+                            >
+                              {adderProfile.avatarUrl ? (
+                                <img
+                                  src={adderProfile.avatarUrl}
+                                  alt={adderProfile.name}
+                                  className="w-3.5 h-3.5 rounded-full object-cover shrink-0"
+                                />
+                              ) : (
+                                <span
+                                  className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-bold ${adderProfile.avatarColor} shrink-0`}
+                                >
+                                  {adderProfile.initials}
+                                </span>
+                              )}
+                              <span>{adderProfile.shortName}</span>
+                              {(() => {
+                                const adderStat =
+                                  curatorStats[movie.addedBy] ||
+                                  (movie.addedBy === 'Matt' ? curatorStats['Matt Tighe'] : undefined) ||
+                                  (movie.addedBy === 'Matt Tighe' ? curatorStats['Matt'] : undefined);
+                                if (adderStat && adderStat.curatorRating !== null) {
+                                  return (
+                                    <span className="text-[10px] text-amber-300 font-bold ml-0.5">
+                                      ★{adderStat.curatorRatingFormatted}
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              })()}
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-zinc-600">—</span>
+                        )}
+                      </td>
 
                       {/* Group Average & Watched Ratio */}
                       <td className="py-3 px-3 text-center align-middle border-l border-[#1e1e23]">

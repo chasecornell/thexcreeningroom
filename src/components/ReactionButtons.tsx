@@ -64,9 +64,9 @@ export function ReactionButtons({
               <ThumbsUp className="w-3 h-3 fill-emerald-400" /> Liked by:
             </div>
             <div className="flex flex-wrap gap-1 max-w-[200px]">
-              {likes.map((name) => (
+              {Array.from(new Set(likes)).map((name, i) => (
                 <span
-                  key={name}
+                  key={`${name}-${i}`}
                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] ${getMemberColor(
                     name
                   )}`}
@@ -108,9 +108,9 @@ export function ReactionButtons({
               <ThumbsDown className="w-3 h-3 fill-rose-400" /> Disliked by:
             </div>
             <div className="flex flex-wrap gap-1 max-w-[200px]">
-              {dislikes.map((name) => (
+              {Array.from(new Set(dislikes)).map((name, i) => (
                 <span
-                  key={name}
+                  key={`${name}-${i}`}
                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] ${getMemberColor(
                     name
                   )}`}

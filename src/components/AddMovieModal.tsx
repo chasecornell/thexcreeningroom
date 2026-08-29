@@ -11,6 +11,8 @@ import {
   AlertCircle,
   Sparkles,
   User,
+  Flame,
+  Quote,
 } from 'lucide-react';
 import {
   MemberProfile,
@@ -18,8 +20,10 @@ import {
   OMDBMovieSearchResult,
   OMDBMovieDetail,
   MovieItem,
+  HotTake,
 } from '../types';
 import { searchMoviesOMDB, getMovieDetailsOMDB } from '../services/omdb';
+import { checkMemberHotTakeEligibility } from '../lib/firebase';
 
 interface AddMovieModalProps {
   isOpen: boolean;
@@ -27,6 +31,8 @@ interface AddMovieModalProps {
   onAddMovie: (movie: Omit<MovieItem, 'id'>) => Promise<void>;
   existingImdbIds?: Set<string>;
   members: MemberProfile[];
+  currentUserProfile: { personName: PersonName | null; isAdmin: boolean } | null;
+  hotTakes?: HotTake[];
 }
 
 export function AddMovieModal({
@@ -35,10 +41,11 @@ export function AddMovieModal({
   onAddMovie,
   existingImdbIds = new Set(),
   members,
+  currentUserProfile,
+  hotTakes = [],
 }: AddMovieModalProps) {
   const searchInputId = useId();
   const yearInputId = useId();
-  const addedBySelectId = useId();
 
   const [query, setQuery] = useState('');
   const [yearFilter, setYearFilter] = useState('');
@@ -48,9 +55,20 @@ export function AddMovieModal({
 
   const [selectedMovie, setSelectedMovie] = useState<OMDBMovieDetail | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
-  const [addedBy, setAddedBy] = useState<PersonName>('Adam');
   const [initialRating, setInitialRating] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Hot Take Feature State
+  const [isHotTake, setIsHotTake] = useState(false);
+  const [hotTakeText, setHotTakeText] = useState('');
+
+  // Authenticated user identity - strictly locked to who is logged in
+  const adderName: PersonName = currentUserProfile?.personName || 'Adam';
+  const adderMember = members.find((m) => m.name === adderName);
+
+  // Weekly Hot Take Eligibility (1 per 7 days per member)
+  const eligibility = checkMemberHotTakeEligibility(adderName, hotTakes);
+  const canDropHotTake = eligibility.allowed || !!currentUserProfile?.isAdmin;
 
   // Debounced auto-search when query changes
   useEffect(() => {
@@ -61,6 +79,8 @@ export function AddMovieModal({
       setSearchError(null);
       setSelectedMovie(null);
       setInitialRating(0);
+      setIsHotTake(false);
+      setHotTakeText('');
       return;
     }
   }, [isOpen]);
@@ -101,6 +121,11 @@ export function AddMovieModal({
   const handleSubmit = async () => {
     if (!selectedMovie) return;
 
+    if (isHotTake && !hotTakeText.trim()) {
+      setSearchError('Please enter your hot take statement or uncheck "Hot Take".');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const newMovie: Omit<MovieItem, 'id'> = {
@@ -119,9 +144,12 @@ export function AddMovieModal({
         plot: selectedMovie.Plot && selectedMovie.Plot !== 'N/A' ? selectedMovie.Plot : undefined,
         rated: selectedMovie.Rated && selectedMovie.Rated !== 'N/A' ? selectedMovie.Rated : undefined,
         runtime: selectedMovie.Runtime && selectedMovie.Runtime !== 'N/A' ? selectedMovie.Runtime : undefined,
-        addedBy: addedBy,
+        addedBy: adderName,
         addedAt: Date.now(),
-        ratings: initialRating > 0 ? { [addedBy]: initialRating } : {},
+        ratings: initialRating > 0 ? { [adderName]: initialRating } : {},
+        isHotTake: isHotTake,
+        hotTakeText: isHotTake ? hotTakeText.trim() : undefined,
+        hotTakeCreatedAt: isHotTake ? Date.now() : undefined,
       };
 
       await onAddMovie(newMovie);
@@ -149,13 +177,13 @@ export function AddMovieModal({
         className="bg-[#111114] border border-[#26262a] w-full max-w-2xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden text-zinc-100"
       >
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#222225] bg-[#151518]">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
-              <Film className="w-5 h-5" />
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-[#222225] bg-[#151518]">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="p-2 sm:p-2.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
+              <Film className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold tracking-tight text-white">Add Movie to Screening Room</h2>
+              <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">Add Movie to Screening Room</h2>
               <p className="text-xs text-zinc-400">
                 Verify title and year against OMDb to prevent wrong editions
               </p>
@@ -171,11 +199,11 @@ export function AddMovieModal({
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 overflow-y-auto space-y-5 flex-1">
-          {/* Search Form */}
-          <form onSubmit={handleSearch} className="space-y-3">
-            <div className="flex gap-3">
-              <div className="flex-1 relative">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-5 flex-1">
+          {/* Search Form (Fully responsive for mobile and desktop) */}
+          <form onSubmit={handleSearch} className="space-y-2.5">
+            <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3">
+              <div className="flex-1 relative w-full">
                 <label htmlFor={searchInputId} className="sr-only">
                   Movie Title
                 </label>
@@ -186,41 +214,43 @@ export function AddMovieModal({
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search movie title (e.g., Dune, Inception, Blade Runner)..."
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[#26262a] bg-[#161619] text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 transition"
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[#26262a] bg-[#161619] text-sm text-zinc-100 placeholder-zinc-500 focus:outline-hidden focus:ring-1 focus:ring-amber-500 focus:border-amber-500 transition"
                   autoFocus
                 />
               </div>
 
-              <div className="w-28 relative">
-                <label htmlFor={yearInputId} className="sr-only">
-                  Year (optional)
-                </label>
-                <input
-                  id={yearInputId}
-                  type="text"
-                  value={yearFilter}
-                  onChange={(e) => setYearFilter(e.target.value)}
-                  placeholder="Year (opt)"
-                  maxLength={4}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#26262a] bg-[#161619] text-sm text-center text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 transition"
-                />
-              </div>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <div className="w-28 sm:w-24 relative shrink-0">
+                  <label htmlFor={yearInputId} className="sr-only">
+                    Year (optional)
+                  </label>
+                  <input
+                    id={yearInputId}
+                    type="text"
+                    value={yearFilter}
+                    onChange={(e) => setYearFilter(e.target.value)}
+                    placeholder="Year (opt)"
+                    maxLength={4}
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#26262a] bg-[#161619] text-sm text-center text-zinc-100 placeholder-zinc-500 focus:outline-hidden focus:ring-1 focus:ring-amber-500 focus:border-amber-500 transition"
+                  />
+                </div>
 
-              <button
-                type="submit"
-                id="omdb-search-btn"
-                disabled={isSearching || !query.trim()}
-                className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-sm font-bold transition flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed shrink-0 shadow-md shadow-amber-500/10 cursor-pointer"
-              >
-                {isSearching ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <>
-                    <Search className="w-4 h-4 stroke-[2.5]" />
-                    <span>Lookup</span>
-                  </>
-                )}
-              </button>
+                <button
+                  type="submit"
+                  id="omdb-search-btn"
+                  disabled={isSearching || !query.trim()}
+                  className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-sm font-bold transition flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed shrink-0 shadow-md shadow-amber-500/10 cursor-pointer active:scale-95"
+                >
+                  {isSearching ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Search className="w-4 h-4 stroke-[2.5]" />
+                      <span>Lookup</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </form>
 
@@ -328,7 +358,7 @@ export function AddMovieModal({
                 </button>
               </div>
 
-              <div className="flex gap-4">
+              <div className="flex flex-col sm:flex-row gap-3.5 sm:gap-4">
                 <img
                   src={
                     selectedMovie.Poster && selectedMovie.Poster !== 'N/A'
@@ -336,11 +366,11 @@ export function AddMovieModal({
                       : 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=300&auto=format&fit=crop&q=80'
                   }
                   alt={selectedMovie.Title}
-                  className="w-24 h-36 object-cover rounded-xl shadow-md shrink-0 bg-[#1e1e24] border border-[#2a2a30]"
+                  className="w-20 h-28 sm:w-24 sm:h-36 object-cover rounded-xl shadow-md shrink-0 bg-[#1e1e24] border border-[#2a2a30] mx-auto sm:mx-0"
                   referrerPolicy="no-referrer"
                 />
 
-                <div className="flex-1 space-y-2">
+                <div className="flex-1 space-y-2 min-w-0">
                   <div>
                     <h3 className="text-lg font-bold text-white leading-tight">
                       {selectedMovie.Title}
@@ -410,29 +440,37 @@ export function AddMovieModal({
               <div className="pt-3.5 border-t border-amber-500/20 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label
-                    htmlFor={addedBySelectId}
                     className="block text-xs font-semibold text-zinc-300 mb-1.5 flex items-center gap-1.5"
                   >
-                    <User className="w-3.5 h-3.5 text-zinc-500" />
-                    <span>Added by (Fixed Roster of 6):</span>
+                    <User className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Added By (Auto-tagged to your profile):</span>
                   </label>
-                  <select
-                    id={addedBySelectId}
-                    value={addedBy}
-                    onChange={(e) => setAddedBy(e.target.value as PersonName)}
-                    className="w-full px-3 py-2 rounded-xl border border-[#26262a] bg-[#161619] text-sm text-zinc-200 font-medium focus:ring-1 focus:ring-amber-500 focus:outline-none cursor-pointer"
-                  >
-                    {members.map((member) => (
-                      <option key={member.id} value={member.name}>
-                        {member.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl border border-amber-500/30 bg-[#16161c] text-sm text-white">
+                    {adderMember?.avatarUrl ? (
+                      <img
+                        src={adderMember.avatarUrl}
+                        alt={adderName}
+                        className="w-6 h-6 rounded-md object-cover ring-1 ring-white/10"
+                      />
+                    ) : (
+                      <span
+                        className={`w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold ${
+                          adderMember?.avatarColor || 'bg-amber-600 text-white'
+                        }`}
+                      >
+                        {adderMember?.initials || adderName.slice(0, 2).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="font-bold text-amber-300">{adderName}</span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 font-semibold ml-auto">
+                      Authenticated
+                    </span>
+                  </div>
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                    {addedBy}'s Star Rating (Optional initial watch):
+                    Your Initial Star Rating (Optional):
                   </label>
                   <div className="flex items-center gap-2 h-9">
                     {[1, 2, 3, 4, 5].map((star) => (
@@ -463,16 +501,115 @@ export function AddMovieModal({
                   </div>
                 </div>
               </div>
+
+              {/* Weekly Hot Take Option (1 per week limit) */}
+              <div className="pt-4 border-t border-amber-500/20">
+                <div
+                  className={`rounded-2xl p-4 transition-all duration-200 ${
+                    isHotTake
+                      ? 'bg-gradient-to-br from-orange-950/60 via-[#200e08] to-[#16161c] border-2 border-orange-500/60 shadow-xl shadow-orange-950/40'
+                      : 'bg-[#15151b] border border-[#282832]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={`p-2 rounded-xl border ${
+                          isHotTake
+                            ? 'bg-gradient-to-br from-amber-500 to-orange-600 text-zinc-950 border-orange-400 shadow-md shadow-orange-500/30'
+                            : 'bg-zinc-800/80 text-orange-400 border-zinc-700'
+                        }`}
+                      >
+                        <Flame className="w-5 h-5 fill-current" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                            <span>Claim Weekly Hot Take</span>
+                            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-300 border border-orange-500/30">
+                              1 / week
+                            </span>
+                          </h4>
+                        </div>
+                        <p className="text-xs text-zinc-400 mt-0.5">
+                          Broadcasts a fiery, unmissable banner across all curators' next login sessions!
+                        </p>
+                      </div>
+                    </div>
+
+                    {canDropHotTake ? (
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={isHotTake}
+                          onChange={(e) => setIsHotTake(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-zinc-800 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                      </label>
+                    ) : (
+                      <div className="px-2.5 py-1 rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-400 text-[11px] font-semibold">
+                        Cooldown
+                      </div>
+                    )}
+                  </div>
+
+                  {!canDropHotTake && (
+                    <div className="mt-3 p-2.5 rounded-xl bg-zinc-900/80 border border-zinc-700/60 text-xs text-zinc-400 flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>
+                        You used your weekly Hot Take for{' '}
+                        <strong className="text-zinc-200">
+                          {eligibility.lastTake?.movieTitle || 'a recent movie'}
+                        </strong>
+                        . Available again in{' '}
+                        <strong className="text-amber-400">{eligibility.daysRemaining} days</strong>
+                        {eligibility.nextAvailableDate && (
+                          <> ({eligibility.nextAvailableDate.toLocaleDateString()})</>
+                        )}
+                        .
+                      </span>
+                    </div>
+                  )}
+
+                  {isHotTake && (
+                    <div className="mt-4 pt-3 border-t border-orange-500/20 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                      <label
+                        htmlFor="hot-take-textarea"
+                        className="block text-xs font-bold text-orange-300 flex items-center gap-1.5"
+                      >
+                        <Quote className="w-3.5 h-3.5 rotate-180" />
+                        <span>Your Unfiltered Hot Take Statement (Required):</span>
+                      </label>
+                      <textarea
+                        id="hot-take-textarea"
+                        rows={3}
+                        value={hotTakeText}
+                        onChange={(e) => setHotTakeText(e.target.value)}
+                        maxLength={400}
+                        placeholder={`e.g. "This movie is Tommy Wiseau's misunderstood avant-garde magnum opus and belongs in the National Film Registry."`}
+                        className="w-full bg-black/60 border border-orange-500/40 rounded-xl p-3 text-xs text-white placeholder-zinc-500 focus:outline-hidden focus:ring-2 focus:ring-orange-500/60 focus:border-orange-400 leading-relaxed transition"
+                      />
+                      <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                        <span className="text-orange-300/80 italic">
+                          🔥 Make it spicy, passionate, or controversial!
+                        </span>
+                        <span className="font-mono">{hotTakeText.length}/400</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>
 
         {/* Modal Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[#222225] bg-[#151518]">
+        <div className="flex items-center justify-end gap-2.5 sm:gap-3 px-4 sm:px-6 py-3.5 sm:py-4 border-t border-[#222225] bg-[#151518]">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-zinc-400 hover:text-white hover:bg-[#202026] rounded-xl transition cursor-pointer"
+            className="px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-medium text-zinc-400 hover:text-white hover:bg-[#202026] rounded-xl transition cursor-pointer"
           >
             Cancel
           </button>
@@ -481,7 +618,7 @@ export function AddMovieModal({
             id="confirm-add-movie-btn"
             disabled={!selectedMovie || isSubmitting}
             onClick={handleSubmit}
-            className="px-5 py-2 text-sm font-bold rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-md shadow-amber-500/10 transition flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="px-4 sm:px-5 py-2 text-xs sm:text-sm font-bold rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-md shadow-amber-500/10 transition flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
             {isSubmitting ? (
               <Loader2 className="w-4 h-4 animate-spin" />

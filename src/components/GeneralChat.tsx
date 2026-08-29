@@ -29,18 +29,31 @@ interface GeneralChatProps {
   messages: ChatMessage[];
   members: MemberProfile[];
   currentUserProfile: { personName: PersonName | null; isAdmin: boolean } | null;
+  defaultExpanded?: boolean;
 }
 
-export function GeneralChat({ messages, members, currentUserProfile }: GeneralChatProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+export function GeneralChat({
+  messages,
+  members,
+  currentUserProfile,
+  defaultExpanded = false,
+}: GeneralChatProps) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [inputText, setInputText] = useState('');
   const [attachedGif, setAttachedGif] = useState<string | null>(null);
   const [replyToMessage, setReplyToMessage] = useState<ChatMessage | null>(null);
-  const [isGifModalOpen, setIsGifModalOpen] = useState(false);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [inlineReplyText, setInlineReplyText] = useState('');
+  const [inlineAttachedGif, setInlineAttachedGif] = useState<string | null>(null);
+  const [inlineReplyingTo, setInlineReplyingTo] = useState<ChatMessage | null>(null);
+  const [gifModalTarget, setGifModalTarget] = useState<'top' | 'inline' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isPosting, setIsPosting] = useState(false);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const inlineInputRef = React.useRef<HTMLInputElement>(null);
+  const chatTopRef = React.useRef<HTMLDivElement>(null);
 
-  // Group top-level messages vs replies
+  // Group top-level messages vs replies (already ordered newest-first from Firestore query)
   const topLevelMessages = messages.filter((m) => !m.parentId);
   const replies = messages.filter((m) => m.parentId);
 
@@ -59,6 +72,20 @@ export function GeneralChat({ messages, members, currentUserProfile }: GeneralCh
     return textMatch || authorMatch || hasMatchingReply;
   });
 
+  const handleStartReply = (msg: ChatMessage) => {
+    setIsExpanded(true);
+    const rootParentId = msg.parentId || msg.id;
+    setActiveThreadId(rootParentId);
+    setInlineReplyingTo(msg);
+    
+    // Also support top composer if desired, but prioritize direct inline thread replying
+    setReplyToMessage(msg);
+
+    setTimeout(() => {
+      inlineInputRef.current?.focus();
+    }, 80);
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() && !attachedGif) return;
@@ -69,11 +96,12 @@ export function GeneralChat({ messages, members, currentUserProfile }: GeneralCh
 
     setIsPosting(true);
     try {
+      const parentId = replyToMessage ? (replyToMessage.parentId || replyToMessage.id) : null;
       await addGeneralChatMessage({
         text: inputText.trim(),
         author: currentUserProfile.personName,
         createdAt: Date.now(),
-        parentId: replyToMessage?.id || null,
+        parentId,
         gifUrl: attachedGif || undefined,
         likes: [],
         dislikes: [],
@@ -81,9 +109,49 @@ export function GeneralChat({ messages, members, currentUserProfile }: GeneralCh
 
       setInputText('');
       setAttachedGif(null);
+      // Keep reply mode or reset smoothly
       setReplyToMessage(null);
     } catch (err) {
       console.error('Failed to send general chat message:', err);
+    } finally {
+      setIsPosting(false);
+    }
+  };
+
+  const handleSendInlineReply = async (e: React.FormEvent, parentThreadId: string) => {
+    e.preventDefault();
+    if (!inlineReplyText.trim() && !inlineAttachedGif) return;
+    if (!currentUserProfile?.personName) {
+      alert('Please select your profile from the top right to reply!');
+      return;
+    }
+
+    setIsPosting(true);
+    try {
+      let textToPost = inlineReplyText.trim();
+      // If replying to a sub-reply and text doesn't already have their tag, prefix mention
+      if (inlineReplyingTo && inlineReplyingTo.id !== parentThreadId && !textToPost.startsWith(`@${inlineReplyingTo.author}`)) {
+        textToPost = `@${inlineReplyingTo.author} ${textToPost}`;
+      }
+
+      await addGeneralChatMessage({
+        text: textToPost,
+        author: currentUserProfile.personName,
+        createdAt: Date.now(),
+        parentId: parentThreadId,
+        gifUrl: inlineAttachedGif || undefined,
+        likes: [],
+        dislikes: [],
+      });
+
+      // Clear input and GIF but KEEP activeThreadId open so user can post multiple replies consecutively!
+      setInlineReplyText('');
+      setInlineAttachedGif(null);
+      setTimeout(() => {
+        inlineInputRef.current?.focus();
+      }, 50);
+    } catch (err) {
+      console.error('Failed to post inline reply:', err);
     } finally {
       setIsPosting(false);
     }
@@ -150,7 +218,7 @@ export function GeneralChat({ messages, members, currentUserProfile }: GeneralCh
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm sm:text-base font-bold text-white tracking-tight">
-                Screening Room Lounge
+                Screening Room Chat Lounge
               </h2>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">
                 <Radio className="w-2.5 h-2.5 animate-pulse" /> Live Stream
@@ -208,134 +276,88 @@ export function GeneralChat({ messages, members, currentUserProfile }: GeneralCh
       </div>
 
       {/* Main Chat Body */}
-      <div className="p-4 sm:p-6 space-y-4">
-        {/* If Collapsed, show top 2 messages preview */}
-        {!isExpanded && (
-          <div className="space-y-3">
-            {previewMessages.length === 0 ? (
-              <div className="py-6 text-center text-zinc-400 text-xs bg-[#0e0e11] rounded-xl border border-[#1e1e24] p-4 flex flex-col items-center gap-2">
-                <span>No chat banter yet. Be the first to drop a hot take or load sample group discussions!</span>
-                <button
-                  type="button"
-                  onClick={handleSeedSampleBanter}
-                  className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-amber-950 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shadow-sm"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Seed Starter Banter & GIFs</span>
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between text-[11px] text-zinc-500 px-1 font-medium">
-                  <span>Recent 2 Hot Takes:</span>
-                  <button
-                    onClick={() => setIsExpanded(true)}
-                    className="text-amber-400 hover:text-amber-300 hover:underline flex items-center gap-1 cursor-pointer font-semibold"
-                  >
-                    <span>View all {messages.length} messages</span>
-                    <ChevronDown className="w-3 h-3" />
-                  </button>
-                </div>
-
-                {previewMessages.map((msg) => {
-                  const msgReplies = replies.filter((r) => r.parentId === msg.id);
+      <div ref={chatTopRef} className="p-4 sm:p-6 space-y-5">
+        {/* Top Message Composer Section */}
+        <div className="space-y-3 bg-[#141418] rounded-2xl p-3.5 sm:p-4 border border-[#26262e] shadow-lg shadow-black/20">
+          {/* Composer Header & Identity Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[#202026]">
+            <div className="flex items-center gap-2">
+              {currentUserProfile?.personName ? (
+                (() => {
+                  const currentMember = members.find((m) => m.name === currentUserProfile.personName);
                   return (
-                    <ChatMessageCard
-                      key={msg.id}
-                      message={msg}
-                      repliesCount={msgReplies.length}
-                      members={members}
-                      currentUserProfile={currentUserProfile}
-                      onReply={() => {
-                        setReplyToMessage(msg);
-                        setIsExpanded(true);
-                      }}
-                      onToggleReaction={(type) => handleToggleReaction(msg, type)}
-                      onDelete={() => handleDelete(msg.id)}
-                    />
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* If Expanded, show full interactive feed with search & replies */}
-        {isExpanded && (
-          <div className="space-y-4">
-            {/* Search filter in expanded mode */}
-            {topLevelMessages.length > 3 && (
-              <div className="relative max-w-sm">
-                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Filter chat by text or member..."
-                  className="w-full bg-[#0d0d10] border border-[#24242a] rounded-xl pl-8 pr-7 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white text-xs"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Expanded Messages List */}
-            <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
-              {filteredMessages.length === 0 ? (
-                <div className="py-8 text-center text-zinc-500 text-xs">
-                  {searchQuery ? 'No matching chat messages found.' : 'The lounge is empty. Start the conversation!'}
-                </div>
-              ) : (
-                filteredMessages.map((msg) => {
-                  const msgReplies = replies
-                    .filter((r) => r.parentId === msg.id)
-                    .sort((a, b) => a.createdAt - b.createdAt);
-
-                  return (
-                    <div key={msg.id} className="space-y-2">
-                      <ChatMessageCard
-                        message={msg}
-                        repliesCount={msgReplies.length}
-                        members={members}
-                        currentUserProfile={currentUserProfile}
-                        onReply={() => setReplyToMessage(msg)}
-                        onToggleReaction={(type) => handleToggleReaction(msg, type)}
-                        onDelete={() => handleDelete(msg.id)}
-                      />
-
-                      {/* Threaded replies */}
-                      {msgReplies.length > 0 && (
-                        <div className="pl-6 sm:pl-8 border-l-2 border-amber-500/20 ml-4 sm:ml-6 space-y-2">
-                          {msgReplies.map((reply) => (
-                            <ChatMessageCard
-                              key={reply.id}
-                              message={reply}
-                              isReply
-                              members={members}
-                              currentUserProfile={currentUserProfile}
-                              onToggleReaction={(type) => handleToggleReaction(reply, type)}
-                              onDelete={() => handleDelete(reply.id)}
-                            />
-                          ))}
-                        </div>
+                    <div className="flex items-center gap-2">
+                      {currentMember?.avatarUrl ? (
+                        <img
+                          src={currentMember.avatarUrl}
+                          alt={currentUserProfile.personName}
+                          className="w-5 h-5 rounded-md object-cover ring-1 ring-amber-500/50"
+                        />
+                      ) : (
+                        <span
+                          className={`w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-bold ring-1 ring-amber-500/50 ${
+                            currentMember?.avatarColor || 'bg-amber-600 text-white'
+                          }`}
+                        >
+                          {currentMember?.initials || currentUserProfile.personName.slice(0, 2)}
+                        </span>
                       )}
+                      <span className="text-xs font-bold text-zinc-200">
+                        Post as <span className="text-amber-300">{currentUserProfile.personName}</span>
+                      </span>
                     </div>
                   );
-                })
+                })()
+              ) : (
+                <span className="text-xs font-semibold text-amber-400">
+                  Select your profile in the top bar to post
+                </span>
               )}
             </div>
-          </div>
-        )}
 
-        {/* Chat Input Section */}
-        <div className="pt-3 border-t border-[#222225] space-y-2 bg-[#141418] rounded-xl p-3 sm:p-4 border">
-          {/* Replying context banner */}
+            {/* Media & Tools: Emojis + GIF */}
+            <div className="flex items-center gap-1.5 ml-auto">
+              <div className="hidden sm:flex items-center gap-0.5 mr-1">
+                {POPULAR_REACTION_EMOJIS.slice(0, 6).map((em) => (
+                  <button
+                    key={em}
+                    type="button"
+                    onClick={() => {
+                      setInputText((prev) => prev + em);
+                      inputRef.current?.focus();
+                    }}
+                    className="px-1.5 py-0.5 text-sm rounded-lg hover:bg-[#222228] hover:scale-115 active:scale-95 transition cursor-pointer"
+                    title={`Add ${em}`}
+                  >
+                    {em}
+                  </button>
+                ))}
+              </div>
+
+              <EmojiPickerPopover
+                onSelectEmoji={(emoji) => {
+                  setInputText((prev) => prev + emoji);
+                  inputRef.current?.focus();
+                }}
+              />
+
+              <button
+                type="button"
+                onClick={() => setGifModalTarget('top')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer border ${
+                  attachedGif
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    : 'bg-[#1b1b20] hover:bg-[#24242c] text-zinc-300 border-[#2a2a32]'
+                }`}
+                title="Attach reaction GIF"
+              >
+                <ImageIcon className="w-3.5 h-3.5 text-amber-400" />
+                <span>GIF</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Replying context banner if replying */}
           {replyToMessage && (
             <div className="flex items-center justify-between bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-1.5 text-xs text-amber-300 animate-in fade-in">
               <div className="flex items-center gap-2 truncate">
@@ -356,7 +378,7 @@ export function GeneralChat({ messages, members, currentUserProfile }: GeneralCh
             </div>
           )}
 
-          {/* Attached GIF preview before sending */}
+          {/* Attached GIF preview */}
           {attachedGif && (
             <div className="relative inline-block rounded-xl overflow-hidden border border-amber-500/50 bg-black/60 shadow-lg">
               <img
@@ -379,51 +401,11 @@ export function GeneralChat({ messages, members, currentUserProfile }: GeneralCh
             </div>
           )}
 
-          {/* Quick Reaction Bar & Action Buttons */}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            {/* Quick Emojis */}
-            <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
-              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider hidden sm:inline mr-1">
-                Quick:
-              </span>
-              {POPULAR_REACTION_EMOJIS.slice(0, 7).map((em) => (
-                <button
-                  key={em}
-                  type="button"
-                  onClick={() => setInputText((prev) => prev + em)}
-                  className="px-1.5 py-0.5 text-sm rounded-lg hover:bg-[#222228] hover:scale-115 active:scale-95 transition cursor-pointer"
-                >
-                  {em}
-                </button>
-              ))}
-            </div>
-
-            {/* Media Add Buttons: Emoji & GIF */}
-            <div className="flex items-center gap-1.5">
-              <EmojiPickerPopover
-                onSelectEmoji={(emoji) => setInputText((prev) => prev + emoji)}
-              />
-
-              <button
-                type="button"
-                onClick={() => setIsGifModalOpen(true)}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer border ${
-                  attachedGif
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                    : 'bg-[#1b1b20] hover:bg-[#24242c] text-zinc-300 border-[#2a2a32]'
-                }`}
-                title="Attach reaction GIF"
-              >
-                <ImageIcon className="w-3.5 h-3.5 text-amber-400" />
-                <span>GIF</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Main Input & Send Row */}
+          {/* Input & Submit Row */}
           <form onSubmit={handleSendMessage} className="flex gap-2">
             <div className="relative flex-1">
               <input
+                ref={inputRef}
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
@@ -435,27 +417,288 @@ export function GeneralChat({ messages, members, currentUserProfile }: GeneralCh
                     : 'Select your profile in top bar to chat...'
                 }
                 disabled={isPosting}
-                className="w-full bg-[#0d0d10] border border-[#26262c] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition"
+                className="w-full bg-[#0d0d10] border border-[#26262c] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-hidden focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition"
               />
             </div>
 
             <button
               type="submit"
               disabled={(!inputText.trim() && !attachedGif) || isPosting}
-              className="bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:hover:bg-amber-500 text-amber-950 font-bold px-4 py-2.5 rounded-xl text-xs sm:text-sm transition flex items-center gap-1.5 cursor-pointer shadow-md shrink-0"
+              className="bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:hover:bg-amber-500 text-amber-950 font-bold px-4 py-2.5 rounded-xl text-xs sm:text-sm transition flex items-center gap-1.5 cursor-pointer shadow-md shrink-0 active:scale-95"
             >
               <Send className="w-4 h-4" />
-              <span className="hidden sm:inline">Post</span>
+              <span className="hidden sm:inline">{replyToMessage ? 'Reply' : 'Post'}</span>
             </button>
           </form>
         </div>
+
+        {/* Message Feed Section (Newest at Top) */}
+        {!isExpanded ? (
+          /* If Collapsed, show top 2 messages preview */
+          <div className="space-y-3 pt-1">
+            {previewMessages.length === 0 ? (
+              <div className="py-5 text-center text-zinc-400 text-xs bg-[#0e0e11] rounded-xl border border-[#1e1e24] p-4 flex flex-col items-center gap-2">
+                <span>No messages yet. Drop the first message above or seed sample banter!</span>
+                <button
+                  type="button"
+                  onClick={handleSeedSampleBanter}
+                  className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-amber-950 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Seed Starter Banter & GIFs</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between text-[11px] text-zinc-400 px-1 font-medium">
+                  <span>Latest Messages:</span>
+                  <button
+                    onClick={() => setIsExpanded(true)}
+                    className="text-amber-400 hover:text-amber-300 hover:underline flex items-center gap-1 cursor-pointer font-semibold"
+                  >
+                    <span>View all {messages.length} messages</span>
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                </div>
+
+                {previewMessages.map((msg) => {
+                  const msgReplies = replies.filter((r) => r.parentId === msg.id);
+                  return (
+                    <ChatMessageCard
+                      key={msg.id}
+                      message={msg}
+                      repliesCount={msgReplies.length}
+                      members={members}
+                      currentUserProfile={currentUserProfile}
+                      onReply={() => handleStartReply(msg)}
+                      onToggleReaction={(type) => handleToggleReaction(msg, type)}
+                      onDelete={() => handleDelete(msg.id)}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* If Expanded, show search + full stream */
+          <div className="space-y-3.5 pt-1">
+            {/* Search filter in expanded mode */}
+            {topLevelMessages.length > 3 && (
+              <div className="flex items-center justify-between gap-3">
+                <div className="relative max-w-sm flex-1">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Filter lounge messages by text or member..."
+                    className="w-full bg-[#0d0d10] border border-[#24242a] rounded-xl pl-8 pr-7 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-hidden focus:border-amber-500"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white text-xs"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                <span className="text-[11px] text-zinc-500 hidden sm:inline">
+                  Newest at top
+                </span>
+              </div>
+            )}
+
+            {/* Expanded Messages List (Newest first) */}
+            <div className="space-y-3 max-h-[550px] overflow-y-auto pr-1">
+              {filteredMessages.length === 0 ? (
+                <div className="py-8 text-center text-zinc-500 text-xs">
+                  {searchQuery ? 'No matching chat messages found.' : 'The lounge is empty. Start the conversation above!'}
+                </div>
+              ) : (
+                filteredMessages.map((msg) => {
+                  const msgReplies = replies
+                    .filter((r) => r.parentId === msg.id)
+                    .sort((a, b) => a.createdAt - b.createdAt);
+                  const isThreadActive = activeThreadId === msg.id;
+
+                  return (
+                    <div key={msg.id} className="space-y-2">
+                      <ChatMessageCard
+                        message={msg}
+                        repliesCount={msgReplies.length}
+                        members={members}
+                        currentUserProfile={currentUserProfile}
+                        onReply={() => handleStartReply(msg)}
+                        onToggleReaction={(type) => handleToggleReaction(msg, type)}
+                        onDelete={() => handleDelete(msg.id)}
+                      />
+
+                      {/* Threaded replies */}
+                      {msgReplies.length > 0 && (
+                        <div className="pl-5 sm:pl-7 border-l-2 border-amber-500/25 ml-3.5 sm:ml-5 space-y-2">
+                          {msgReplies.map((reply) => (
+                            <ChatMessageCard
+                              key={reply.id}
+                              message={reply}
+                              isReply
+                              members={members}
+                              currentUserProfile={currentUserProfile}
+                              onReply={() => handleStartReply(reply)}
+                              onToggleReaction={(type) => handleToggleReaction(reply, type)}
+                              onDelete={() => handleDelete(reply.id)}
+                            />
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Inline Thread Reply Box (Supports infinite consecutive replies directly inside thread) */}
+                      {isThreadActive && (
+                        <div className="pl-5 sm:pl-7 border-l-2 border-amber-500/40 ml-3.5 sm:ml-5 pt-1">
+                          <div className="bg-[#18181f] border border-amber-500/30 rounded-xl p-3 shadow-md space-y-2 animate-in fade-in duration-150">
+                            {/* Inline Reply Header */}
+                            <div className="flex items-center justify-between text-[11px] text-amber-300">
+                              <div className="flex items-center gap-1.5 truncate">
+                                <Reply className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                <span>
+                                  Replying to{' '}
+                                  <strong className="font-bold text-white">
+                                    @{inlineReplyingTo?.author || msg.author}
+                                  </strong>
+                                </span>
+                                {inlineReplyingTo && inlineReplyingTo.id !== msg.id && (
+                                  <span className="text-zinc-400 italic truncate hidden sm:inline">
+                                    "{inlineReplyingTo.text}"
+                                  </span>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveThreadId(null);
+                                  setInlineReplyingTo(null);
+                                  setInlineReplyText('');
+                                  setInlineAttachedGif(null);
+                                }}
+                                className="text-zinc-400 hover:text-white text-xs px-1.5 py-0.5 rounded hover:bg-zinc-800 transition cursor-pointer"
+                                title="Close reply box"
+                              >
+                                Done
+                              </button>
+                            </div>
+
+                            {/* Inline Attached GIF preview */}
+                            {inlineAttachedGif && (
+                              <div className="relative inline-block rounded-lg overflow-hidden border border-amber-500/50 bg-black/60 shadow-md">
+                                <img
+                                  src={inlineAttachedGif}
+                                  alt="Attached GIF"
+                                  className="h-20 max-w-xs object-cover rounded-md"
+                                  referrerPolicy="no-referrer"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setInlineAttachedGif(null)}
+                                  className="absolute top-1 right-1 p-0.5 bg-black/80 hover:bg-rose-600 text-white rounded-full transition shadow cursor-pointer"
+                                  title="Remove GIF"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Inline Form & Tools */}
+                            <form
+                              onSubmit={(e) => handleSendInlineReply(e, msg.id)}
+                              className="space-y-2"
+                            >
+                              <div className="flex gap-1.5">
+                                <input
+                                  ref={inlineInputRef}
+                                  type="text"
+                                  value={inlineReplyText}
+                                  onChange={(e) => setInlineReplyText(e.target.value)}
+                                  placeholder={
+                                    currentUserProfile?.personName
+                                      ? `Reply to @${inlineReplyingTo?.author || msg.author} as ${currentUserProfile.personName}...`
+                                      : 'Select your profile to reply...'
+                                  }
+                                  disabled={isPosting}
+                                  className="flex-1 bg-[#101014] border border-[#2a2a34] rounded-lg px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-hidden focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                                />
+
+                                <button
+                                  type="submit"
+                                  disabled={(!inlineReplyText.trim() && !inlineAttachedGif) || isPosting}
+                                  className="bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-amber-950 font-bold px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1 cursor-pointer shrink-0"
+                                >
+                                  <Send className="w-3.5 h-3.5" />
+                                  <span>Reply</span>
+                                </button>
+                              </div>
+
+                              <div className="flex items-center justify-between text-xs pt-1 border-t border-[#22222a]">
+                                <div className="flex items-center gap-1">
+                                  {POPULAR_REACTION_EMOJIS.slice(0, 4).map((em) => (
+                                    <button
+                                      key={em}
+                                      type="button"
+                                      onClick={() => {
+                                        setInlineReplyText((prev) => prev + em);
+                                        inlineInputRef.current?.focus();
+                                      }}
+                                      className="px-1 py-0.5 text-xs rounded hover:bg-[#262630] transition cursor-pointer"
+                                    >
+                                      {em}
+                                    </button>
+                                  ))}
+                                  <EmojiPickerPopover
+                                    onSelectEmoji={(emoji) => {
+                                      setInlineReplyText((prev) => prev + emoji);
+                                      inlineInputRef.current?.focus();
+                                    }}
+                                  />
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setGifModalTarget('inline')}
+                                  className={`px-2 py-0.5 rounded text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer border ${
+                                    inlineAttachedGif
+                                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                      : 'bg-[#121216] hover:bg-[#202028] text-zinc-300 border-[#2a2a34]'
+                                  }`}
+                                >
+                                  <ImageIcon className="w-3 h-3 text-amber-400" />
+                                  <span>GIF</span>
+                                </button>
+                              </div>
+                            </form>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* GIF Picker Modal */}
-      {isGifModalOpen && (
+      {gifModalTarget && (
         <GifModal
-          onSelectGif={(url) => setAttachedGif(url)}
-          onClose={() => setIsGifModalOpen(false)}
+          onSelectGif={(url) => {
+            if (gifModalTarget === 'inline') {
+              setInlineAttachedGif(url);
+            } else {
+              setAttachedGif(url);
+            }
+            setGifModalTarget(null);
+          }}
+          onClose={() => setGifModalTarget(null)}
         />
       )}
     </section>
@@ -502,13 +745,21 @@ function ChatMessageCard({
       {/* Author Bar */}
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2 min-w-0">
-          <span
-            className={`w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-extrabold ${
-              authorProfile?.avatarColor || 'bg-zinc-700 text-white'
-            } shrink-0`}
-          >
-            {authorProfile?.initials || message.author.slice(0, 2)}
-          </span>
+          {authorProfile?.avatarUrl ? (
+            <img
+              src={authorProfile.avatarUrl}
+              alt={authorProfile.name}
+              className="w-6 h-6 rounded-md object-cover shrink-0"
+            />
+          ) : (
+            <span
+              className={`w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-extrabold ${
+                authorProfile?.avatarColor || 'bg-zinc-700 text-white'
+              } shrink-0`}
+            >
+              {authorProfile?.initials || message.author.slice(0, 2)}
+            </span>
+          )}
 
           <span className="text-xs font-bold text-zinc-100 truncate">
             {message.author}

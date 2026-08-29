@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   X,
   ExternalLink,
@@ -11,26 +11,33 @@ import {
   Users,
   Award,
   Loader2,
+  Sparkles,
+  Flame,
 } from 'lucide-react';
 import { MovieItem, MemberProfile, PersonName, OMDBMovieDetail } from '../types';
 import { getMovieDetailsOMDB } from '../services/omdb';
+import { calculateCuratorStats } from '../lib/curatorStats';
 
 interface MovieDetailModalProps {
   movie: MovieItem | null;
   members: MemberProfile[];
+  allMovies?: MovieItem[];
   currentUserProfile?: { isAdmin: boolean; personName: PersonName | null } | null;
   onClose: () => void;
   onDelete?: (movieId: string) => void;
   onUpdateRating: (movieId: string, person: PersonName, rating: number) => void;
+  onOpenLeaderboard?: () => void;
 }
 
 export function MovieDetailModal({
   members,
   movie,
+  allMovies = [],
   currentUserProfile,
   onClose,
   onDelete,
   onUpdateRating,
+  onOpenLeaderboard,
 }: MovieDetailModalProps) {
   const [omdbDetails, setOmdbDetails] = useState<OMDBMovieDetail | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
@@ -76,6 +83,17 @@ export function MovieDetailModal({
     };
   }, [movie?.imdbID]);
 
+  const curatorStats = useMemo(() => {
+    if (!movie || allMovies.length === 0 || !movie.addedBy) return null;
+    const { statsMap } = calculateCuratorStats(allMovies, members);
+    return (
+      statsMap[movie.addedBy] ||
+      (movie.addedBy === 'Matt' ? statsMap['Matt Tighe'] : null) ||
+      (movie.addedBy === 'Matt Tighe' ? statsMap['Matt'] : null) ||
+      null
+    );
+  }, [movie, allMovies, members]);
+
   if (!movie) return null;
 
   const adderProfile = movie.addedBy ? members.find((m) => m.name === movie.addedBy) : null;
@@ -98,8 +116,18 @@ export function MovieDetailModal({
     : [];
 
   // Calculate group rating stats
-  const ratedEntries = members.filter((p) => (movie.ratings?.[p.name] ?? 0) > 0);
-  const sumRating = ratedEntries.reduce((acc, p) => acc + (movie.ratings[p.name] || 0), 0);
+  const ratedEntries = members.filter((p) => {
+    const r = movie.ratings?.[p.name] ?? 
+      ((p.name === 'Matt Tighe' || p.shortName === 'Matt') ? movie.ratings?.['Matt'] : undefined) ??
+      ((p.name === 'Matt') ? movie.ratings?.['Matt Tighe'] : undefined) ?? 0;
+    return r > 0;
+  });
+  const sumRating = ratedEntries.reduce((acc, p) => {
+    const r = movie.ratings?.[p.name] ?? 
+      ((p.name === 'Matt Tighe' || p.shortName === 'Matt') ? movie.ratings?.['Matt'] : undefined) ??
+      ((p.name === 'Matt') ? movie.ratings?.['Matt Tighe'] : undefined) ?? 0;
+    return acc + r;
+  }, 0);
   const avgRating = ratedEntries.length > 0 ? (sumRating / ratedEntries.length).toFixed(1) : null;
 
   const imdbUrl = movie.imdbID ? `https://www.imdb.com/title/${movie.imdbID}/` : null;
@@ -149,29 +177,28 @@ export function MovieDetailModal({
                 href={imdbUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#f5c518] hover:bg-[#e2b616] text-zinc-950 font-bold text-xs shadow-xs transition cursor-pointer"
-                title="Open movie in IMDb"
+                className="hidden sm:inline-flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 font-semibold px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 transition"
               >
                 <span>IMDb</span>
-                {imdbRating && <span className="font-extrabold">★ {imdbRating}</span>}
-                <ExternalLink className="w-3 h-3 stroke-[2.5]" />
+                {imdbRating && <span>★{imdbRating}</span>}
+                <ExternalLink className="w-3 h-3 ml-0.5" />
               </a>
             )}
             <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-[#202026] transition cursor-pointer"
-              title="Close modal"
+              className="p-1.5 text-zinc-400 hover:text-white bg-[#1a1a1f] hover:bg-[#26262c] rounded-xl transition cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Modal Scrollable Content */}
-        <div className="p-5 sm:p-6 overflow-y-auto space-y-5 flex-1">
-          {/* Main Top Banner */}
-          <div className="flex flex-col sm:flex-row gap-4 sm:gap-5">
-            <div className="relative shrink-0 self-center sm:self-start">
+        {/* Scrollable Content Body */}
+        <div className="p-5 sm:p-6 overflow-y-auto space-y-4 max-h-[calc(92vh-130px)]">
+          {/* Top Info Banner with Poster */}
+          <div className="flex flex-col sm:flex-row gap-4 items-start">
+            <div className="w-28 sm:w-32 shrink-0 self-center sm:self-start relative group">
               <img
                 src={
                   movie.poster && movie.poster !== 'N/A'
@@ -179,11 +206,11 @@ export function MovieDetailModal({
                     : 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=300&auto=format&fit=crop&q=80'
                 }
                 alt={movie.title}
-                className="w-28 sm:w-32 h-40 sm:h-48 object-cover rounded-xl shadow-lg bg-[#1a1a1f] border border-[#2a2a30]"
+                className="w-full h-auto rounded-xl shadow-lg border border-[#2a2a30] object-cover aspect-2/3 bg-[#18181c]"
                 referrerPolicy="no-referrer"
               />
               {imdbRating && (
-                <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded-md bg-black/85 border border-amber-500/40 text-amber-400 text-[10px] font-extrabold shadow-sm flex items-center gap-1 backdrop-blur-xs">
+                <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded-md bg-black/80 backdrop-blur-xs text-amber-400 text-[10px] font-bold border border-amber-500/30 flex items-center gap-1">
                   <Star className="w-2.5 h-2.5 fill-amber-400" />
                   <span>{imdbRating}</span>
                 </div>
@@ -242,15 +269,37 @@ export function MovieDetailModal({
                 </div>
               )}
 
-              {/* Added By and Mobile IMDb Link */}
-              <div className="flex flex-wrap items-center gap-2.5 pt-1 text-xs">
+              {/* Added By and Curator Taste Rating */}
+              <div className="flex flex-wrap items-center gap-2 pt-1.5 text-xs">
                 {adderProfile && (
-                  <span
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-semibold text-[11px] border ${adderProfile.badgeBg}`}
-                  >
-                    <User className="w-3 h-3" />
-                    <span>Added by {movie.addedBy}</span>
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-semibold text-[11px] border ${adderProfile.badgeBg}`}
+                    >
+                      <User className="w-3 h-3" />
+                      <span>Added by {movie.addedBy}</span>
+                    </span>
+
+                    {curatorStats && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onOpenLeaderboard) {
+                            onClose();
+                            onOpenLeaderboard();
+                          }
+                        }}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[11px] border transition cursor-pointer ${
+                          curatorStats.tierBg
+                        } ${curatorStats.tierColor} ${curatorStats.tierBorder} hover:brightness-125`}
+                        title="Click to view Curator Leaderboard"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>Curator: ★ {curatorStats.curatorRatingFormatted}</span>
+                        <span className="opacity-75 font-normal">({curatorStats.tierLabel})</span>
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 {imdbUrl && (
@@ -267,6 +316,28 @@ export function MovieDetailModal({
               </div>
             </div>
           </div>
+
+          {/* Weekly Hot Take Feature Callout */}
+          {movie.isHotTake && movie.hotTakeText && (
+            <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-br from-orange-950/70 via-[#220d06] to-[#16161c] border-2 border-orange-500/60 shadow-xl shadow-orange-950/40 text-white relative overflow-hidden">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="p-1.5 rounded-lg bg-orange-500/20 text-orange-400 border border-orange-500/30">
+                  <Flame className="w-4 h-4 fill-orange-500 text-orange-400 animate-pulse" />
+                </div>
+                <span className="text-xs font-black uppercase tracking-wider text-orange-300">
+                  {movie.addedBy}'s Weekly Hot Take
+                </span>
+                {movie.hotTakeCreatedAt && (
+                  <span className="text-[11px] text-zinc-400 ml-auto">
+                    {new Date(movie.hotTakeCreatedAt).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm sm:text-base font-serif italic text-amber-100 pl-2 border-l-2 border-orange-500/60 leading-relaxed">
+                "{movie.hotTakeText}"
+              </p>
+            </div>
+          )}
 
           {/* Top 3 Actors Section */}
           <div className="space-y-2 pt-1 border-t border-[#222225]">
@@ -340,8 +411,11 @@ export function MovieDetailModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {members.map((member) => {
                 const profile = member;
-                const currentRating = movie.ratings?.[member.name] || 0;
-                const isAllowedToRate = currentUserProfile?.personName === member.name;
+                const currentRating = movie.ratings?.[member.name] ?? 
+                  ((member.name === 'Matt Tighe' || member.shortName === 'Matt') ? movie.ratings?.['Matt'] : undefined) ??
+                  ((member.name === 'Matt') ? movie.ratings?.['Matt Tighe'] : undefined) ?? 0;
+                const isAllowedToRate = currentUserProfile?.personName === member.name || 
+                  ((currentUserProfile?.personName === 'Matt' || currentUserProfile?.personName === 'Matt Tighe') && (member.name === 'Matt' || member.name === 'Matt Tighe'));
 
                 return (
                   <div
@@ -353,11 +427,15 @@ export function MovieDetailModal({
                     }`}
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className={`w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold ${profile.avatarColor} shrink-0`}
-                      >
-                        {profile.initials}
-                      </span>
+                      {profile.avatarUrl ? (
+                        <img src={profile.avatarUrl} alt={profile.name} className="w-6 h-6 rounded-md object-cover shrink-0" />
+                      ) : (
+                        <span
+                          className={`w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold ${profile.avatarColor} shrink-0`}
+                        >
+                          {profile.initials}
+                        </span>
+                      )}
                       <span className="text-xs font-semibold text-zinc-200 truncate">
                         {profile.name}
                       </span>

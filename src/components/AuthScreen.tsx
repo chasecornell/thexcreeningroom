@@ -1,9 +1,16 @@
 import React, { useState } from 'react';
 import { auth, googleProvider } from '../lib/firebase';
 import { signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { Film, User, Lock, Mail } from 'lucide-react';
+import { Film, Lock, Mail } from 'lucide-react';
+import { ThemeToggle } from './ThemeToggle';
+import { ThemeMode } from '../lib/theme';
 
-export function AuthScreen() {
+interface AuthScreenProps {
+  theme?: ThemeMode;
+  onToggleTheme?: () => void;
+}
+
+export function AuthScreen({ theme = 'dark', onToggleTheme }: AuthScreenProps) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -47,7 +54,13 @@ export function AuthScreen() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0c0c0e] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#0c0c0e] flex items-center justify-center p-4 relative">
+      {onToggleTheme && (
+        <div className="absolute top-4 right-4">
+          <ThemeToggle theme={theme} onToggle={onToggleTheme} showLabel />
+        </div>
+      )}
+
       <div className="w-full max-w-md bg-[#161619] border border-[#26262a] rounded-2xl p-6 sm:p-8 shadow-2xl">
         <div className="flex flex-col items-center text-center mb-8">
           <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-400 shadow-xs mb-4">
@@ -117,7 +130,7 @@ export function AuthScreen() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 mt-2 bg-amber-500 hover:bg-amber-400 text-amber-950 font-bold rounded-xl transition-colors disabled:opacity-50"
+            className="w-full py-2.5 mt-2 bg-amber-500 hover:bg-amber-400 text-amber-950 font-bold rounded-xl transition-colors disabled:opacity-50 cursor-pointer"
           >
             {isLogin ? 'Sign In' : 'Create Account'}
           </button>
@@ -133,7 +146,7 @@ export function AuthScreen() {
           type="button"
           onClick={handleGoogleSignIn}
           disabled={loading}
-          className="mt-6 w-full py-2.5 bg-white text-zinc-900 font-bold rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-zinc-100"
+          className="mt-6 w-full py-2.5 bg-white text-zinc-900 font-bold rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-zinc-100 cursor-pointer border border-slate-200 shadow-xs"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24">
             <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />

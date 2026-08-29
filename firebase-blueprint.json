@@ -72,9 +72,72 @@
           "type": "string",
           "maxLength": 1000,
           "description": "Optional notes"
+        },
+        "isHotTake": {
+          "type": "boolean",
+          "description": "Whether this movie was submitted as a weekly hot take"
+        },
+        "hotTakeText": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "The fiery spicy hot take quote/statement"
+        },
+        "hotTakeCreatedAt": {
+          "type": "number",
+          "description": "Timestamp of the hot take"
         }
       },
       "required": ["title", "addedAt"]
+    },
+    "HotTake": {
+      "title": "HotTake",
+      "description": "A weekly spicy movie opinion/take broadcasted to all curators",
+      "type": "object",
+      "properties": {
+        "movieId": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "ID of associated movie"
+        },
+        "movieTitle": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Title of the movie"
+        },
+        "movieYear": {
+          "type": "string",
+          "maxLength": 10,
+          "description": "Release year"
+        },
+        "moviePoster": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Poster image URL"
+        },
+        "author": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Author/curator of the hot take"
+        },
+        "hotTakeText": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "The spicy opinion text"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp when published"
+        },
+        "reactions": {
+          "type": "object",
+          "description": "Map of reaction emojis to arrays of member names"
+        },
+        "initialRating": {
+          "type": "number",
+          "description": "Initial star rating by author"
+        }
+      },
+      "required": ["movieId", "movieTitle", "author", "hotTakeText", "createdAt"]
     },
     "ChatMessage": {
       "title": "ChatMessage",
@@ -115,6 +178,36 @@
         }
       },
       "required": ["text", "author", "createdAt"]
+    },
+    "EmailPreference": {
+      "title": "EmailPreference",
+      "description": "Member notification delivery settings and opt-out preferences",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "User notification email address"
+        },
+        "optOutDailyDigest": {
+          "type": "boolean",
+          "description": "Whether user opted out of daily 6:00 AM watchlist dispatches"
+        },
+        "optOutWeeklyRoast": {
+          "type": "boolean",
+          "description": "Whether user opted out of weekly 7-day sarcastic recap newsletters"
+        },
+        "memberName": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Associated member name"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Timestamp of last preference update"
+        }
+      },
+      "required": ["email"]
     }
   },
   "firestore": {
@@ -122,9 +215,17 @@
       "schema": "Movie",
       "description": "Collection of movies shared in the screening room"
     },
+    "/hot_takes/{takeId}": {
+      "schema": "HotTake",
+      "description": "Weekly hot takes submitted by curators"
+    },
     "/general_chat/{messageId}": {
       "schema": "ChatMessage",
       "description": "General banter and discussion stream"
+    },
+    "/email_preferences/{userId}": {
+      "schema": "EmailPreference",
+      "description": "Member email alert settings and opt-out statuses"
     }
   }
 }

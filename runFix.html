@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head><title>Fix</title></head>
+<body>
+<p>Check the console.</p>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, getDocs, updateDoc, doc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  projectId: "the-screening-room-63840",
+  appId: "1:749835048004:web:339fd6f8de387a83a41811",
+  apiKey: "AIzaSyCEY4NPFVnRYL_PwxYqHhAW97LQ1KV7Y8g",
+  authDomain: "the-screening-room-63840.firebaseapp.com",
+  storageBucket: "the-screening-room-63840.firebasestorage.app",
+  messagingSenderId: "749835048004",
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app, "ai-studio-thescreeningroom-abb8f31a-d264-458a-afd9-ea1995a85a44");
+
+async function run() {
+  try {
+    const email = prompt("Enter admin email:");
+    const pass = prompt("Enter admin password:");
+    await signInWithEmailAndPassword(auth, email, pass);
+    
+    // ... all the update logic ...
+    alert("Check console for progress");
+  } catch(e) {
+    alert(e.message);
+  }
+}
+run();
+</script>
+</body>
+</html>

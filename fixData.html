@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Fix DB</title>
+</head>
+<body>
+  <h1>Fixing DB...</h1>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, collection, getDocs, updateDoc, doc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    const firebaseConfig = {
+      projectId: "the-screening-room-63840",
+      appId: "1:749835048004:web:339fd6f8de387a83a41811",
+      apiKey: "AIzaSyCEY4NPFVnRYL_PwxYqHhAW97LQ1KV7Y8g",
+      authDomain: "the-screening-room-63840.firebaseapp.com",
+      storageBucket: "the-screening-room-63840.firebasestorage.app",
+      messagingSenderId: "749835048004",
+    };
+    
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app, "ai-studio-thescreeningroom-abb8f31a-d264-458a-afd9-ea1995a85a44");
+
+    async function run() {
+      try {
+        const moviesSnapshot = await getDocs(collection(db, 'movies'));
+        for (const docSnap of moviesSnapshot.docs) {
+          const data = docSnap.data();
+          let changed = false;
+
+          const ratings = data.ratings || {};
+          if (ratings['Senior Iglesia'] !== undefined) {
+            ratings['Matt'] = ratings['Senior Iglesia'];
+            delete ratings['Senior Iglesia'];
+            changed = true;
+          }
+
+          let addedBy = data.addedBy;
+          if (addedBy === 'Senior Iglesia') {
+            addedBy = 'Matt';
+            changed = true;
+          }
+
+          let comments = data.comments || [];
+          let commentsChanged = false;
+          comments = comments.map((c) => {
+            let author = c.author;
+            if (author === 'Senior Iglesia') { author = 'Matt'; commentsChanged = true; }
+            
+            let likes = c.likes || [];
+            if (likes.includes('Senior Iglesia')) {
+              likes = likes.map((l) => l === 'Senior Iglesia' ? 'Matt' : l);
+              commentsChanged = true;
+            }
+            
+            let dislikes = c.dislikes || [];
+            if (dislikes.includes('Senior Iglesia')) {
+              dislikes = dislikes.map((l) => l === 'Senior Iglesia' ? 'Matt' : l);
+              commentsChanged = true;
+            }
+            return { ...c, author, likes, dislikes };
+          });
+
+          if (commentsChanged) changed = true;
+
+          if (changed) {
+            console.log('Updating movie', docSnap.id);
+            await updateDoc(docSnap.ref, { ratings, addedBy, comments });
+          }
+        }
+
+        const chatSnapshot = await getDocs(collection(db, 'chatMessages'));
+        for (const docSnap of chatSnapshot.docs) {
+          const data = docSnap.data();
+          let changed = false;
+          
+          let author = data.author;
+          if (author === 'Senior Iglesia') {
+            author = 'Matt';
+            changed = true;
+          }
+
+          if (changed) {
+            console.log('Updating chat', docSnap.id);
+            await updateDoc(docSnap.ref, { author });
+          }
+        }
+        
+        const usersSnapshot = await getDocs(collection(db, 'users'));
+        for (const docSnap of usersSnapshot.docs) {
+          const data = docSnap.data();
+          if (data.personName === 'Senior Iglesia') {
+            console.log('Updating user', docSnap.id);
+            await updateDoc(docSnap.ref, { personName: 'Matt' });
+          }
+        }
+        
+        const membersSnapshot = await getDocs(collection(db, 'members'));
+        for (const docSnap of membersSnapshot.docs) {
+          const data = docSnap.data();
+          if (data.name === 'Senior Iglesia') {
+            console.log('Updating member doc', docSnap.id);
+            await updateDoc(docSnap.ref, { name: 'Matt', shortName: 'Matt', initials: 'M' });
+          }
+        }
+
+        document.body.innerHTML += "<p>Done fixing.</p>";
+      } catch (e) {
+        document.body.innerHTML += "<p>Error: " + e.message + "</p>";
+      }
+    }
+    run();
+  </script>
+</body>
+</html>
